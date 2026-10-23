@@ -468,7 +468,7 @@ export function drawCrumb(ctx: C, kind: CrumbKind, x: number, y: number, seed: n
 }
 
 // ---------------------------------------------------------------- gates
-export function drawGate(ctx: C, x: number, y: number, w: number, label: string, good: boolean, used: number, t: number, seed: number) {
+export function drawGate(ctx: C, x: number, y: number, w: number, label: string, good: boolean | 'mystery', used: number, t: number, seed: number) {
   const h = 44;
   const pop = used > 0 ? 1 + used * 0.4 : 1 + Math.sin(t * 5 + seed) * 0.02;
   const alpha = used > 0 ? Math.max(0, 1 - used * 1.8) : 1;
@@ -477,8 +477,8 @@ export function drawGate(ctx: C, x: number, y: number, w: number, label: string,
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.scale(pop, pop);
-  const col = good ? '#7bd88f' : '#ff8a80';
-  const dark = good ? '#3fa35a' : '#d9534f';
+  const col = good === 'mystery' ? `hsl(${(t * 90 + seed * 40) % 360}, 75%, 72%)` : good ? '#7bd88f' : '#ff8a80';
+  const dark = good === 'mystery' ? '#7a4fd6' : good ? '#3fa35a' : '#d9534f';
   rrect(ctx, -w / 2 + 4, -h / 2, w - 8, h, 12, seed, 0.8);
   ctx.globalAlpha = alpha * 0.82;
   paint(ctx, col, 0);
@@ -499,6 +499,86 @@ export function drawGate(ctx: C, x: number, y: number, w: number, label: string,
   }
   ctx.restore();
   text(ctx, label, 0, 2, 26, '#fff', dark);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- power-ups
+const POWER_ICON = { shield: '🛡️', magnet: '🧲', rage: '🔥' } as const;
+const POWER_COL = { shield: '#7ed6ff', magnet: '#ff7eb6', rage: '#ffb347' } as const;
+
+export function drawPowerUp(ctx: C, kind: keyof typeof POWER_ICON, x: number, y: number, seed: number, t: number) {
+  const bob = Math.sin(t * 3 + seed) * 4;
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 22, 16 - bob * 0.5, 5, 0, 0, TAU);
+  ctx.fill();
+  y += bob - 6;
+  // soft glow ring
+  ctx.globalAlpha = 0.35 + Math.sin(t * 6 + seed) * 0.15;
+  ctx.beginPath();
+  ctx.arc(x, y, 26, 0, TAU);
+  ctx.fillStyle = POWER_COL[kind];
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  blob(ctx, x, y, 19, 19, seed, 0.05);
+  paint(ctx, 'rgba(255,255,255,0.85)', 2.4);
+  ctx.beginPath();
+  ctx.arc(x - 7, y - 8, 4, 0, TAU);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.font = '20px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(POWER_ICON[kind], x, y + 1);
+}
+
+/** The bubble that wraps the swarm while the shield is up. */
+export function drawShield(ctx: C, x: number, y: number, r: number, t: number, fade: number) {
+  ctx.save();
+  ctx.globalAlpha = 0.25 * fade;
+  blob(ctx, x, y, r, r * 0.95, 3, 0.03, t);
+  ctx.fillStyle = '#bfeaff';
+  ctx.fill();
+  ctx.globalAlpha = 0.8 * fade;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#7ed6ff';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x - r * 0.4, y - r * 0.45, r * 0.18, 3.6, 4.6);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Red warning stripe on the half of the arena the boss is about to smash. */
+export function drawSlamZone(ctx: C, x0: number, x1: number, y0: number, y1: number, k: number, t: number, hit: boolean) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, y0, x1 - x0, y1 - y0);
+  ctx.clip();
+  ctx.globalAlpha = hit ? 0.55 : 0.18 + k * 0.3 + Math.sin(t * 22) * 0.06 * k;
+  ctx.fillStyle = hit ? '#ffffff' : '#ff5d6c';
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  if (!hit) {
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 10;
+    const off = (t * 60) % 36;
+    for (let sx = x0 - 80; sx < x1 + 80; sx += 36) {
+      ctx.beginPath();
+      ctx.moveTo(sx + off, y1);
+      ctx.lineTo(sx + off + 50, y0);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.setLineDash([10, 8]);
+  ctx.lineDashOffset = -t * 30;
+  ctx.strokeStyle = '#d9534f';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x0 + 2, y0 + 2, x1 - x0 - 4, y1 - y0 - 4);
   ctx.restore();
 }
 

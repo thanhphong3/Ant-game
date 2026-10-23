@@ -154,6 +154,24 @@ export class Sound {
   lose() {
     [0, -1, -2, -4].forEach((n, i) => this.tone(NOTE(62 + n), i === 3 ? 0.6 : 0.25, 'sawtooth', 0.06, i === 3 ? NOTE(55) : undefined, i * 0.25));
   }
+  power() {
+    [0, 7, 12, 19].forEach((n, i) => this.tone(NOTE(72 + n), 0.14, 'triangle', 0.09, NOTE(74 + n), i * 0.045));
+  }
+  fever() {
+    [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => this.tone(NOTE(67 + n), 0.12, 'square', 0.07, undefined, i * 0.04));
+    this.noise(0.4, 0.08, 6000, 'highpass');
+  }
+  counter() {
+    this.tone(160, 0.25, 'square', 0.12, 60);
+    [0, 7, 12].forEach((n, i) => this.tone(NOTE(79 + n), 0.1, 'square', 0.07, undefined, 0.05 + i * 0.05));
+  }
+  slam() {
+    this.tone(70, 0.4, 'sine', 0.5, 30);
+    this.noise(0.35, 0.35, 400, 'lowpass');
+  }
+  block() {
+    this.tone(1300, 0.12, 'sine', 0.08, 1800);
+  }
   buy() {
     [0, 7, 12].forEach((n, i) => this.tone(NOTE(76 + n), 0.1, 'triangle', 0.08, undefined, i * 0.05));
   }

@@ -4,7 +4,7 @@ import { TRACK_HALF } from './art';
 import { irange, mulberry32, pick, range, type Rng } from './rng';
 
 export interface Crumb { kind: CrumbKind; x: number; d: number; value: number; taken: boolean; seed: number }
-export interface GateOp { op: '+' | '-' | 'x' | '/'; v: number }
+export interface GateOp { op: '+' | '-' | 'x' | '/' | '?'; v: number }
 export interface Gate { d: number; left: GateOp; right: GateOp; used: number; chosen: 0 | -1 | 1 }
 export interface Collider { dx: number; dy: number; r: number }
 export interface Obstacle {
@@ -16,6 +16,8 @@ export interface Food {
   kind: FoodKind; x: number; d: number; r: number; need: number; carriers: number; value: number;
   state: 'idle' | 'carried' | 'nope'; anim: number;
 }
+export type PowerKind = 'shield' | 'magnet' | 'rage';
+export interface PowerUp { kind: PowerKind; x: number; d: number; taken: boolean; seed: number }
 export interface Stomp { x: number; d: number; trigger: number; state: 'wait' | 'warn' | 'down' | 'up' | 'done'; timer: number }
 
 export interface Level {
@@ -32,12 +34,22 @@ export interface Level {
   squads: Squad[];
   foods: Food[];
   stomps: Stomp[];
+  powerups: PowerUp[];
 }
 
-export const gateLabel = (g: GateOp) => (g.op === '+' ? '+' : g.op === '-' ? '−' : g.op === 'x' ? '×' : '÷') + g.v;
+export const gateLabel = (g: GateOp) => (g.op === '?' ? '?' : (g.op === '+' ? '+' : g.op === '-' ? '−' : g.op === 'x' ? '×' : '÷') + g.v);
 export const gateGood = (g: GateOp) => g.op === '+' || g.op === 'x';
+/** A mystery gate turns into a real one when the swarm walks through it: usually a treat, sometimes a trick. */
+export function revealMystery(n: number, rnd: () => number): GateOp {
+  const k = rnd();
+  if (k < 0.3) return { op: 'x', v: k < 0.06 ? 3 : 2 };
+  if (k < 0.68) return { op: '+', v: Math.max(5, Math.round(n * (0.3 + rnd() * 0.5))) };
+  if (k < 0.85) return { op: '-', v: Math.max(2, Math.round(n * 0.3)) };
+  return { op: '/', v: 2 };
+}
 export function applyGate(n: number, g: GateOp, plusBoost = 1) {
   switch (g.op) {
+    case '?': return n;
     case '+': return n + Math.round(g.v * plusBoost);
     case '-': return n - g.v;
     case 'x': return n * g.v;
@@ -63,12 +75,13 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     boss: BOSSES[(num - 1) % BOSSES.length].kind,
     bossHP: 0,
     speed: 150 + Math.min(num, 25) * 3,
-    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [],
+    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [],
   };
   let est = 10 + Math.min(num, 40) * 0.7;
   let d = 380;
   let lastType = '';
   let seedN = 1;
+  let mysteryLeft = num >= 2 ? 1 : 0; // guarantee one ❓ gate per level from level 2
 
   const crumbLine = (x0: number, x1: number, d0: number, n: number, shape: 'line' | 'zig' | 'arc') => {
     for (let i = 0; i < n; i++) {
@@ -102,7 +115,8 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         break;
       }
       case 'gate': {
-        const g = makeGate(r, num, est, d < 900);
+        const g = makeGate(r, num, est, d < 900, mysteryLeft > 0);
+        if (g[0].op === '?' || g[1].op === '?') mysteryLeft--;
         lv.gates.push({ d: d + 120, left: g[0], right: g[1], used: 0, chosen: 0 });
         const best = Math.max(applyGate(est, g[0]), applyGate(est, g[1]));
         est = Math.max(6, best * 0.85);
@@ -164,7 +178,16 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         break;
       }
     }
+    // Every few segments a power-up bubble floats somewhere on the track.
+    if (d > 1000 && r() < 0.35) {
+      const kinds: PowerKind[] = num >= 2 ? ['shield', 'magnet', 'rage'] : ['magnet', 'shield'];
+      lv.powerups.push({ kind: pick(r, kinds), x: range(r, -H + 50, H - 50), d: d + segLen - 40, taken: false, seed: seedN++ });
+    }
     d += segLen + range(r, -30, 40);
+  }
+  // Always at least one power-up per level, around the middle.
+  if (!lv.powerups.length) {
+    lv.powerups.push({ kind: num < 2 ? 'magnet' : pick(r, ['shield', 'magnet', 'rage'] as const), x: range(r, -H + 50, H - 50), d: length * 0.5, taken: false, seed: seedN++ });
   }
   // Boss is tuned so a decent run wins and a sloppy one doesn't.
   const ratio = num <= 2 ? 0.55 : Math.min(1.3, 0.75 + num * 0.035);
@@ -172,7 +195,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
   return lv;
 }
 
-function makeGate(r: Rng, num: number, est: number, safe: boolean): [GateOp, GateOp] {
+function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: boolean): [GateOp, GateOp] {
   const plus = (): GateOp => ({ op: '+', v: irange(r, 4, 8 + Math.round(num * 1.5 + est * 0.25)) });
   // Bad gates hurt but never wipe out an average swarm on their own.
   const minus = (): GateOp => ({ op: '-', v: irange(r, 3, Math.max(4, Math.round(est * 0.55))) });
@@ -185,6 +208,7 @@ function makeGate(r: Rng, num: number, est: number, safe: boolean): [GateOp, Gat
   const k = r();
   let pair: [GateOp, GateOp];
   if (safe) pair = [good(), good()];
+  else if (num >= 2 && (wantMystery || k < 0.25)) pair = [{ op: '?', v: 0 }, r() < 0.5 ? good() : bad()];
   else if (k < 0.55) pair = [good(), bad()];
   else if (k < 0.9) pair = [good(), good()];
   else pair = [bad(), bad()];

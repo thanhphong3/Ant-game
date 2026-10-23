@@ -49,6 +49,18 @@ const dict = {
   combo: { vi: 'Combo x{0}!', en: 'Combo x{0}!' },
   dodge: { vi: 'Né!', en: 'Dodge!' },
   stomp: { vi: 'Coi chừng chân!', en: 'Watch the foot!' },
+  fever: { vi: 'CUỒNG NHIỆT!', en: 'FEVER!' },
+  shield: { vi: 'Khiên bong bóng!', en: 'Bubble shield!' },
+  magnet: { vi: 'Siêu nam châm!', en: 'Super magnet!' },
+  rage: { vi: 'Kiến nổi giận! x2 sức', en: 'Ant rage! x2 power' },
+  blocked: { vi: 'Chặn!', en: 'Blocked!' },
+  mystery: { vi: 'Bất ngờ!', en: 'Surprise!' },
+  bossDodge: { vi: 'Né sang bên kia!', en: 'Dodge to the other side!' },
+  counter: { vi: 'PHẢN ĐÒN!', en: 'COUNTER!' },
+  ouch: { vi: 'Ui da!', en: 'Ouch!' },
+  stars: { vi: 'Sao', en: 'Stars' },
+  starBonus: { vi: 'Thưởng sao', en: 'Star bonus' },
+  tipBoss: { vi: 'Mẹo: khi trùm đánh, kéo đàn kiến sang phía an toàn để phản đòn!', en: 'Tip: when the boss strikes, move to the safe side to counter!' },
 } as const;
 
 export type Key = keyof typeof dict;

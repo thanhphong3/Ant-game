@@ -1,12 +1,13 @@
 import {
   INK, TAU, TRACK_HALF, drawAccessory, drawAnt, drawBeetle, drawBoss, drawCrumb, drawFood, drawFoot,
-  drawFootShadow, drawGate, drawGround, drawObstacle, makeAntSprites, paint, rrect, setBoil, text,
+  drawFootShadow, drawGate, drawGround, drawObstacle, drawPowerUp, drawShield, drawSlamZone, makeAntSprites, paint,
+  rrect, setBoil, text,
   type AntSprites, type BossVisual,
 } from './art';
 import type { Sound } from './audio';
 import { BOSSES, THEMES, type CaptainId } from './data';
 import { t, tr } from './i18n';
-import { applyGate, gateGood, gateLabel, type Level, type Squad } from './level';
+import { applyGate, gateGood, gateLabel, revealMystery, type Level, type Squad } from './level';
 
 export interface RunStats {
   startAnts: number;
@@ -26,6 +27,8 @@ export interface RunResult {
   fightHoney: number;
   foodHoney: number;
   bonus: number;
+  stars: number;
+  starBonus: number;
   total: number;
 }
 
@@ -55,6 +58,17 @@ const SPACING = 9.5;
 const ANT = 18;
 const GOLDEN = 2.39996;
 const SMOKE = '#e3d9ee';
+const FEVER_COMBO = 10;
+const POWER_TIME = { shield: 6, magnet: 7, rage: 8 } as const;
+const SLAM_WARN = 1.0;
+
+const buzz = (ms: number | number[]) => {
+  try {
+    navigator.vibrate?.(ms);
+  } catch {
+    /* no haptics */
+  }
+};
 
 export class Run {
   time = 0;
@@ -78,13 +92,23 @@ export class Run {
   bossHP: number;
   bossMax: number;
   bossV: BossVisual = { hurt: 0, attack: 0, dead: false };
-  bossAtkT = 0;
   private lastHurt = 0;
+  // timed buffs (seconds left)
+  shieldT = 0;
+  magnetT = 0;
+  rageT = 0;
+  feverT = 0;
+  // boss slam: side of the arena about to be smashed, and its countdown
+  slam: { side: -1 | 1; t: number; hit: number } | null = null;
+  slamCD = 0.6;
+  slamCount = 0;
   battle: Squad | null = null;
   tickAcc = 0;
   ended = false;
   private spr: AntSprites;
   private capSpr: AntSprites;
+  private goldSpr: AntSprites;
+  private rageSpr: AntSprites;
   private keys = { left: false, right: false };
   private drag: { px: number; tx: number } | null = null;
   private scale = 1;
@@ -100,6 +124,8 @@ export class Run {
     this.bossHP = this.bossMax = lv.bossHP;
     this.spr = makeAntSprites();
     this.capSpr = makeAntSprites('#4a3558', 'rgba(255,255,255,0.7)');
+    this.goldSpr = makeAntSprites('#d9961a', 'rgba(255,255,230,0.85)');
+    this.rageSpr = makeAntSprites('#c23a4a', 'rgba(255,220,220,0.7)');
     this.syncAnts(0, -20);
     for (const a of this.ants) {
       a.pop = 1;
@@ -114,6 +140,16 @@ export class Run {
   }
   get radius() {
     return SPACING * Math.sqrt(this.ants.length + 1.5);
+  }
+  /** Swarm centre during the boss fight: steering still works so slams can be dodged. */
+  get bossCx() {
+    return this.x * 0.75;
+  }
+  get bossCy() {
+    return this.bossD - 90 - this.radius * 0.6;
+  }
+  get power() {
+    return this.stats.power * (this.rageT > 0 ? 2 : 1);
   }
 
   // ------------------------------------------------------------ input
@@ -208,7 +244,9 @@ export class Run {
     }
   }
   private float(x: number, y: number, s: string, color = '#fff', size = 22) {
-    this.texts.push({ x, y, s, color, life: 0, size });
+    // keep wide labels on screen when the swarm hugs a wall
+    const lim = TRACK_HALF - size * 2.5;
+    this.texts.push({ x: Math.max(-lim, Math.min(lim, x)), y, s, color, life: 0, size });
   }
 
   // ------------------------------------------------------------ update
@@ -230,10 +268,15 @@ export class Run {
     if (this.phase === 'run') speed = lv.speed;
     if (this.phase === 'bossIntro') speed = this.d < this.stopD ? lv.speed : 0;
     this.d = Math.min(this.d + speed * dt, this.phase === 'run' || this.phase === 'bossIntro' ? this.stopD : this.d);
-    if (this.phase !== 'boss' && this.phase !== 'win') this.x += (this.targetX - this.x) * Math.min(1, dt * 9);
+    if (this.phase !== 'win') this.x += (this.targetX - this.x) * Math.min(1, dt * 9);
 
     this.comboT -= dt;
     if (this.comboT <= 0) this.combo = 0;
+    this.shieldT = Math.max(0, this.shieldT - dt);
+    this.magnetT = Math.max(0, this.magnetT - dt);
+    this.rageT = Math.max(0, this.rageT - dt);
+    this.feverT = Math.max(0, this.feverT - dt);
+    if (this.feverT > 0 && Math.random() < dt * 10) this.sparkle(this.x + (Math.random() - 0.5) * this.radius * 2, this.d + (Math.random() - 0.5) * this.radius * 2, '#ffd166', 1);
 
     if (this.phase === 'run') {
       this.updatePickups();
@@ -292,7 +335,6 @@ export class Run {
   }
 
   private updateAnts(dt: number, speed: number) {
-    const R = this.radius;
     let cx = this.x;
     let cy = this.d;
     let spread = 1;
@@ -301,8 +343,8 @@ export class Run {
       cy = (this.d + this.battle.d) / 2 - 10;
       spread = 0.75;
     } else if (this.phase === 'boss') {
-      cx = this.x * 0.5;
-      cy = this.bossD - 90 - R * 0.6;
+      cx = this.bossCx;
+      cy = this.bossCy;
       spread = 0.8;
     }
     const dance = this.phase === 'win';
@@ -330,7 +372,23 @@ export class Run {
   }
 
   private updatePickups() {
-    const R = this.radius + 8 + this.stats.magnet;
+    const fever = this.feverT > 0;
+    const R = this.radius + 8 + this.stats.magnet + (this.magnetT > 0 ? 110 : 0) + (fever ? 25 : 0);
+    const PR = this.radius + 22;
+    for (const p of this.lv.powerups) {
+      if (p.taken || Math.abs(p.d - this.d) > PR + 10) continue;
+      const dx = p.x - this.x;
+      const dy = p.d - this.d;
+      if (dx * dx + dy * dy > PR * PR) continue;
+      p.taken = true;
+      if (p.kind === 'shield') this.shieldT = POWER_TIME.shield;
+      else if (p.kind === 'magnet') this.magnetT = POWER_TIME.magnet;
+      else this.rageT = POWER_TIME.rage;
+      this.sound.power();
+      buzz(30);
+      this.sparkle(p.x, p.d, p.kind === 'shield' ? '#7ed6ff' : p.kind === 'magnet' ? '#ff7eb6' : '#ffb347', 18);
+      this.float(this.x, this.d + this.radius + 50, t(p.kind), '#fff', 24);
+    }
     for (const c of this.lv.crumbs) {
       if (c.taken || c.d < this.d - R - 30 || c.d > this.d + R + 30) continue;
       const dx = c.x - this.x;
@@ -338,13 +396,21 @@ export class Run {
       if (dx * dx + dy * dy < R * R) {
         c.taken = true;
         this.combo++;
-        this.comboT = 0.7;
-        this.addCount(c.value, c.x, c.d);
-        this.crumbHoney += c.value * this.stats.crumbHoneyMult;
+        this.comboT = fever ? 1.2 : 0.7;
+        const gain = c.value * (fever ? 2 : 1);
+        this.addCount(gain, c.x, c.d);
+        this.crumbHoney += gain * this.stats.crumbHoneyMult;
         this.sound.pick(this.combo);
         this.sparkle(c.x, c.d, c.kind === 'candy' ? '#ff7eb6' : '#ffd166', c.kind === 'bread' ? 3 : 7);
-        if (c.value > 1) this.float(c.x, c.d + 10, `+${c.value}`, '#ffd166', 18);
-        if (this.combo === 5 || this.combo === 10 || this.combo === 20 || this.combo === 30) {
+        if (gain > 1) this.float(c.x, c.d + 10, `+${gain}`, '#ffd166', 18);
+        if (this.combo % FEVER_COMBO === 0) {
+          // Fever: double ants per crumb, longer combo window, bigger pickup reach.
+          this.feverT = 5;
+          this.sound.fever();
+          buzz([20, 40, 20]);
+          this.confetti(this.x, this.d, 30);
+          this.float(this.x, this.d + this.radius + 60, t('fever'), '#ffd166', 38);
+        } else if (this.combo === 5) {
           this.float(this.x, this.d + this.radius + 40, t('combo', this.combo), '#ff7eb6', 26);
         }
       }
@@ -360,19 +426,28 @@ export class Run {
       if (this.d < g.d) continue;
       g.chosen = this.x < 0 ? -1 : 1;
       g.used = 0.001;
-      const op = g.chosen < 0 ? g.left : g.right;
+      let op = g.chosen < 0 ? g.left : g.right;
       const before = this.count;
+      const mystery = op.op === '?';
+      if (mystery) {
+        op = revealMystery(before, Math.random);
+        if (g.chosen < 0) g.left = op;
+        else g.right = op;
+      }
       const after = applyGate(before, op, op.op === '+' ? this.stats.plusBoost : 1);
       const gx = g.chosen * TRACK_HALF * 0.5;
       this.addCount(after - before, gx, g.d);
       const good = gateGood(op);
       this.float(gx, g.d + 20, gateLabel(op), good ? '#b5f27a' : '#ff8a80', 34);
+      if (mystery) this.float(gx, g.d + 60, `❓ ${t('mystery')}`, '#c7b3ff', 20);
       if (good) {
         this.sound.gateGood();
         this.sparkle(gx, g.d, '#b5f27a', 14);
+        if (mystery) this.confetti(gx, g.d, 24);
       } else {
         this.sound.gateBad();
         this.shake = 6;
+        buzz(60);
       }
     }
   }
@@ -393,12 +468,18 @@ export class Run {
           const dy = a.y - cy;
           const d2 = dx * dx + dy * dy;
           if (d2 >= rr || a.inv > 0) continue;
-          if (Math.random() < st.dodge) {
+          const shielded = this.shieldT > 0;
+          if (shielded || Math.random() < st.dodge) {
             const l = Math.sqrt(d2) || 1;
             a.x = cx + (dx / l) * (c.r + 6);
             a.y = cy + (dy / l) * (c.r + 6);
             a.inv = 0.5;
-            if (Math.random() < 0.25) this.float(a.x, a.y + 10, t('dodge'), '#7ed6ff', 14);
+            if (shielded) {
+              if (Math.random() < 0.15) {
+                this.float(a.x, a.y + 10, t('blocked'), '#7ed6ff', 14);
+                this.sound.block();
+              }
+            } else if (Math.random() < 0.25) this.float(a.x, a.y + 10, t('dodge'), '#7ed6ff', 14);
           } else {
             this.killAnt(i);
           }
@@ -421,7 +502,13 @@ export class Run {
         s.timer = 0;
         this.sound.stomp();
         this.shake = 16;
+        buzz(80);
         this.poof(s.x, s.d, '#c7b3ff', 18);
+        if (this.shieldT > 0) {
+          this.float(s.x, s.d + 40, t('blocked'), '#7ed6ff', 22);
+          this.sound.block();
+          continue;
+        }
         const rx = 58;
         const ry = 58 * 1.3;
         for (let i = this.ants.length - 1; i >= 0; i--) {
@@ -465,7 +552,7 @@ export class Run {
     this.tickAcc += dt * rate;
     while (this.tickAcc >= 1 && s.hp > 0 && this.count > 0) {
       this.tickAcc -= 1;
-      s.hp -= this.stats.power;
+      s.hp -= this.power;
       this.count -= 1;
       this.syncAnts(this.x, this.d);
       const mx = (this.x + s.x) / 2 + (Math.random() - 0.5) * 30;
@@ -510,11 +597,12 @@ export class Run {
   }
 
   private updateBoss(dt: number) {
-    const rate = Math.max(10, (this.count + this.bossHP) / 2.6);
+    // Slower than a squad fight so there is time to dodge the boss's slams.
+    const rate = Math.max(8, (this.count + this.bossHP) / 7);
     this.tickAcc += dt * rate;
     while (this.tickAcc >= 1 && this.bossHP > 0 && this.count > 0) {
       this.tickAcc -= 1;
-      this.bossHP -= this.stats.power;
+      this.bossHP -= this.power;
       this.count -= 1;
       if (this.time - this.lastHurt > 0.22) {
         this.bossV.hurt = 1;
@@ -525,14 +613,58 @@ export class Run {
       this.poof(bx, this.bossD - 50 + Math.random() * 30, '#ffffff', 2);
       this.sound.hit();
     }
-    this.bossAtkT += dt;
-    if (this.bossAtkT > 0.9) {
-      this.bossAtkT = 0;
-      this.bossV.attack = 1;
-      this.shake = 8;
-      this.poof(this.x * 0.5, this.bossD - 120, SMOKE, 10);
-    }
+    this.updateSlam(dt);
     if (this.bossHP <= 0 && this.count > 0) this.win();
+  }
+
+  /** Arena x-range a slam on `side` covers; the middle strip stays safe. */
+  slamRange(side: -1 | 1): [number, number] {
+    return side < 0 ? [-TRACK_HALF, -22] : [22, TRACK_HALF];
+  }
+
+  private updateSlam(dt: number) {
+    if (this.slam) {
+      const sl = this.slam;
+      if (sl.hit > 0) {
+        sl.hit -= dt;
+        if (sl.hit <= 0) this.slam = null;
+        return;
+      }
+      sl.t += dt;
+      if (sl.t < SLAM_WARN) return;
+      // SMASH
+      sl.hit = 0.3;
+      this.bossV.attack = 1;
+      this.shake = 16;
+      this.sound.slam();
+      buzz(90);
+      const [x0, x1] = this.slamRange(sl.side);
+      for (let i = 0; i < 10; i++) this.poof(x0 + Math.random() * (x1 - x0), this.bossCy + (Math.random() - 0.5) * 120, SMOKE, 2);
+      const inZone = this.ants.filter((a) => a.x > x0 && a.x < x1).length;
+      const frac = this.ants.length ? inZone / this.ants.length : 0;
+      if (frac === 0 || this.shieldT > 0) {
+        const dmg = Math.max(2, Math.round(this.bossMax * 0.07 * (this.rageT > 0 ? 1.5 : 1)));
+        this.bossHP -= dmg;
+        this.bossV.hurt = 1;
+        this.sound.counter();
+        this.float(0, this.bossD - 60, `${t('counter')} -${dmg}`, '#ffd166', 30);
+        this.sparkle(0, this.bossD - 40, '#ffd166', 20);
+      } else {
+        const lost = Math.max(1, Math.round(this.count * frac * 0.22 * (1 - this.stats.dodge * 0.5)));
+        for (const a of this.ants) if (a.x > x0 && a.x < x1 && Math.random() < 0.5) this.poof(a.x, a.y, SMOKE, 2);
+        this.addCount(-lost, this.bossCx, this.bossCy);
+        this.float((x0 + x1) / 2, this.bossCy + 40, `${t('ouch')} -${lost}`, '#ff8a80', 24);
+      }
+      this.slamCD = 0.7 + Math.random() * 0.5;
+      return;
+    }
+    this.slamCD -= dt;
+    if (this.slamCD > 0) return;
+    // Aim at the side holding most of the swarm, so the player has to move.
+    const side: -1 | 1 = Math.abs(this.bossCx) < 12 ? (Math.random() < 0.5 ? -1 : 1) : this.bossCx < 0 ? -1 : 1;
+    this.slam = { side, t: 0, hit: 0 };
+    this.sound.warn();
+    if (this.slamCount++ === 0) this.float(0, this.bossCy + 80, t('bossDodge'), '#fff', 20);
   }
 
   private win() {
@@ -546,8 +678,14 @@ export class Run {
     this.shake = 14;
     const st = this.stats;
     const antsLeft = Math.floor(this.count);
+    buzz([40, 60, 40, 60, 120]);
+    this.slam = null;
     const bonus = 20 + this.lv.num * 8 + antsLeft;
-    const base = this.crumbHoney + this.fightHoney + this.foodHoney + bonus;
+    // Stars: how much of an army is still standing compared to the boss it beat.
+    const ratio = antsLeft / Math.max(1, this.bossMax);
+    const stars = ratio >= 0.6 ? 3 : ratio >= 0.25 ? 2 : 1;
+    const starBonus = stars * (5 + this.lv.num * 2);
+    const base = this.crumbHoney + this.fightHoney + this.foodHoney + bonus + starBonus;
     this.result = {
       win: true,
       antsLeft,
@@ -555,6 +693,8 @@ export class Run {
       fightHoney: this.fightHoney,
       foodHoney: this.foodHoney,
       bonus,
+      stars,
+      starBonus,
       total: Math.round(base * st.honeyMult),
     };
   }
@@ -565,6 +705,8 @@ export class Run {
     this.count = 0;
     this.sound.lose();
     this.sound.setMusic('off');
+    this.slam = null;
+    buzz(200);
     const base = (this.crumbHoney + this.fightHoney + this.foodHoney) * 0.5;
     this.result = {
       win: false,
@@ -573,6 +715,8 @@ export class Run {
       fightHoney: Math.round(this.fightHoney * 0.5),
       foodHoney: Math.round(this.foodHoney * 0.5),
       bonus: 0,
+      stars: 0,
+      starBonus: 0,
       total: Math.round(base * this.stats.honeyMult),
     };
   }
@@ -626,6 +770,12 @@ export class Run {
     if (vis(this.stopD + 40)) this.drawRibbon(ctx, Y(this.stopD + 40), '#ff7eb6', 'BOSS');
 
     for (const c of lv.crumbs) if (!c.taken && vis(c.d)) drawCrumb(ctx, c.kind, c.x, Y(c.d), c.seed, tm);
+    for (const p of lv.powerups) if (!p.taken && vis(p.d)) drawPowerUp(ctx, p.kind, p.x, Y(p.d), p.seed, tm);
+
+    if (this.slam) {
+      const [x0, x1] = this.slamRange(this.slam.side);
+      drawSlamZone(ctx, x0, x1, Y(this.bossD - 30), Y(this.stopD - 100), Math.min(1, this.slam.t / SLAM_WARN), tm, this.slam.hit > 0);
+    }
 
     for (const f of lv.foods) {
       if (!vis(f.d, 120)) continue;
@@ -661,8 +811,9 @@ export class Run {
       if (!vis(g.d, 60)) continue;
       const gy = Y(g.d);
       const w = TRACK_HALF;
-      if (g.chosen !== -1 || g.used < 0.6) drawGate(ctx, -w / 2, gy, w, gateLabel(g.left), gateGood(g.left), g.chosen === -1 ? g.used : 0, tm, g.d);
-      if (g.chosen !== 1 || g.used < 0.6) drawGate(ctx, w / 2, gy, w, gateLabel(g.right), gateGood(g.right), g.chosen === 1 ? g.used : 0, tm, g.d + 1);
+      const look = (op: typeof g.left) => (op.op === '?' ? 'mystery' : gateGood(op));
+      if (g.chosen !== -1 || g.used < 0.6) drawGate(ctx, -w / 2, gy, w, gateLabel(g.left), look(g.left), g.chosen === -1 ? g.used : 0, tm, g.d);
+      if (g.chosen !== 1 || g.used < 0.6) drawGate(ctx, w / 2, gy, w, gateLabel(g.right), look(g.right), g.chosen === 1 ? g.used : 0, tm, g.d + 1);
       // centre post
       rrect(ctx, -6, gy - 30, 12, 60, 5, g.d, 0.5);
       paint(ctx, '#fff', 2.2);
@@ -688,16 +839,21 @@ export class Run {
       this.badge(ctx, cx, Y(cy) - sr - 16, String(Math.ceil(s.hp)), '#7a4fd6');
     }
 
-    // swarm
+    // swarm (gold while in fever, red while raging)
+    const swarmSpr = this.feverT > 0 ? this.goldSpr : this.rageT > 0 ? this.rageSpr : this.spr;
     for (let i = this.ants.length - 1; i >= 0; i--) {
       const a = this.ants[i];
-      const size = ANT * (a.pop < 1 ? 0.4 + a.pop * 0.6 + Math.sin(a.pop * Math.PI) * 0.4 : 1);
-      if (a.inv > 0 && Math.floor(tm * 20) % 2) continue;
-      drawAnt(ctx, this.spr, a.x, Y(a.y), a.ang, size, Math.floor(a.ft));
+      const size = ANT * (a.pop < 1 ? 0.4 + a.pop * 0.6 + Math.sin(a.pop * Math.PI) * 0.4 : 1) * (this.feverT > 0 ? 1.1 : 1);
+      if (a.inv > 0 && this.shieldT <= 0 && Math.floor(tm * 20) % 2) continue;
+      drawAnt(ctx, swarmSpr, a.x, Y(a.y), a.ang, size, Math.floor(a.ft));
     }
     if (this.phase !== 'lose' && this.count > 0) {
-      const capX = this.phase === 'boss' ? this.x * 0.5 : this.x;
-      const capD = this.phase === 'boss' ? this.bossD - 90 - this.radius * 0.6 : this.phase === 'battle' && this.battle ? (this.d + this.battle.d) / 2 - 10 : this.d;
+      const capX = this.phase === 'boss' ? this.bossCx : this.phase === 'battle' && this.battle ? (this.x + this.battle.x) / 2 : this.x;
+      const capD = this.phase === 'boss' ? this.bossCy : this.phase === 'battle' && this.battle ? (this.d + this.battle.d) / 2 - 10 : this.d;
+      if (this.shieldT > 0) {
+        const fade = this.shieldT < 1.5 ? (Math.floor(tm * 10) % 2 ? 0.4 : 1) : 1;
+        drawShield(ctx, capX, Y(capD), this.radius + 18, tm, fade);
+      }
       const bounce = this.phase === 'win' ? Math.abs(Math.sin(tm * 7)) * 12 : 0;
       const capSize = ANT * 1.9 * (this.stats.captain === 'chubby' ? 1.12 : 1);
       drawAnt(ctx, this.capSpr, capX, Y(capD) - bounce, 0, capSize, Math.floor(tm * 12));
@@ -768,8 +924,8 @@ export class Run {
       let bx = this.x;
       let bd = this.d;
       if (this.phase === 'boss') {
-        bx = this.x * 0.5;
-        bd = this.bossD - 90 - this.radius * 0.6;
+        bx = this.bossCx;
+        bd = this.bossCy;
       } else if (this.phase === 'battle' && this.battle) {
         bx = (this.x + this.battle.x) / 2;
         bd = (this.d + this.battle.d) / 2 - 10;
@@ -822,6 +978,44 @@ export class Run {
     const honey = Math.round(this.crumbHoney + this.fightHoney + this.foodHoney);
     text(ctx, `🍯 ${honey}`, bx + bw, by + 32 * u, 15 * u, '#ffd166', INK, 'right');
 
+    // active buffs
+    const buffs: [string, number, number, string][] = [
+      ['🔥', this.feverT, 5, '#ffd166'],
+      ['🛡️', this.shieldT, POWER_TIME.shield, '#7ed6ff'],
+      ['🧲', this.magnetT, POWER_TIME.magnet, '#ff7eb6'],
+      ['💢', this.rageT, POWER_TIME.rage, '#ffb347'],
+    ];
+    let px = bx;
+    for (const [icon, left, max, col] of buffs) {
+      if (left <= 0) continue;
+      const pw = 64 * u;
+      const py = by + 50 * u;
+      rrect(ctx, px, py, pw, 22 * u, 11 * u, 91, 0.3);
+      paint(ctx, 'rgba(255,255,255,0.9)', 2);
+      rrect(ctx, px + 24 * u, py + 7 * u, (pw - 30 * u) * (left / max), 8 * u, 4 * u, 92, 0);
+      paint(ctx, col, 0);
+      ctx.font = `${14 * u}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(icon, px + 13 * u, py + 12 * u);
+      px += pw + 6 * u;
+    }
+    // combo meter towards fever
+    if (this.combo >= 3 && this.feverT <= 0 && this.phase === 'run') {
+      const k = (this.combo % FEVER_COMBO) / FEVER_COMBO;
+      text(ctx, `${t('combo', this.combo)}`, W / 2, H * 0.17, (16 + k * 10) * u, k > 0.66 ? '#ffd166' : '#fff', INK);
+    }
+    // fever frame
+    if (this.feverT > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.5 + Math.sin(this.time * 12) * 0.2;
+      ctx.lineWidth = 14 * u;
+      ctx.strokeStyle = `hsl(${(this.time * 240) % 360}, 90%, 65%)`;
+      ctx.strokeRect(0, 0, W, H);
+      ctx.restore();
+      text(ctx, `🔥 ${t('fever')} 🔥`, W / 2, H * 0.17, 26 * u + Math.sin(this.time * 10) * 2, '#ffd166', INK);
+    }
+
     if (this.phase === 'ready') {
       const bob = Math.sin(this.time * 4) * 8;
       ctx.globalAlpha = 0.95;
@@ -838,6 +1032,7 @@ export class Run {
       ctx.scale(k, k);
       text(ctx, t('bossTime'), 0, 0, 40 * u, '#ff7eb6', INK);
       ctx.restore();
+      if (this.lv.num <= 4 || this.lv.daily) wrapText(ctx, t('tipBoss'), W / 2, H * 0.3 + 50 * u, Math.min(W - 40, 380), 16 * u);
     }
     if (this.phase === 'win') {
       const k = Math.min(1, this.phaseT * 3);
@@ -852,4 +1047,19 @@ export class Run {
       text(ctx, t('lose'), W / 2, H * 0.4, 30 * u, '#ff8a80', INK);
     }
   }
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, maxW: number, size: number) {
+  ctx.font = `800 ${size}px "Baloo 2", sans-serif`;
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of s.split(' ')) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(next).width > maxW && cur) {
+      lines.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  lines.forEach((l, i) => text(ctx, l, x, y + i * size * 1.25, size, '#fff', INK));
 }

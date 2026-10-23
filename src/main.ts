@@ -117,7 +117,7 @@ function menuScreen() {
       ),
       h('div', { class: 'row' }, btn('⚙️', 'white icon-btn', settingsScreen)),
     ),
-    h('div', { class: 'version', textContent: 'v1.0' }),
+    h('div', { class: 'version', textContent: 'v1.1' }),
   );
 }
 
@@ -315,6 +315,17 @@ function onRunEnd(r: RunResult) {
   resultScreen(r, newBest);
 }
 
+function starRow(n: number) {
+  const row = h('div', { class: 'stars' });
+  for (let i = 0; i < 3; i++) {
+    const st = h('span', { class: `star${i < n ? ' on' : ''}`, textContent: '★' });
+    st.style.animationDelay = `${0.25 + i * 0.22}s`;
+    if (i < n) setTimeout(() => sound.buy(), 250 + i * 220);
+    row.append(st);
+  }
+  return row;
+}
+
 function resultScreen(r: RunResult, newBest: boolean) {
   const line = (label: string, v: number) => h('div', {}, h('span', { textContent: label }), h('span', { textContent: `+${fmt(v)}` }));
   const total = h('span', { textContent: '0' });
@@ -322,7 +333,8 @@ function resultScreen(r: RunResult, newBest: boolean) {
     h('div', {}, h('span', { textContent: `🐜 ${t('antsLeft')}` }), h('span', { textContent: fmt(r.antsLeft) })),
     line(`🍞 ${t('crumbs')}`, r.crumbHoney + r.fightHoney),
     line(`🍉 ${t('bigFood')}`, r.foodHoney),
-    line(`⭐ ${t('bonus')}`, r.bonus),
+    line(`🎖 ${t('bonus')}`, r.bonus),
+    r.win ? line(`⭐ ${t('starBonus')}`, r.starBonus) : '',
     h('div', { class: 'tot' }, h('span', { textContent: `🍯 ${t('total')}` }), total),
   );
   // count-up animation
@@ -341,6 +353,7 @@ function resultScreen(r: RunResult, newBest: boolean) {
     h('div', { class: 'screen dim' },
       h('div', { class: 'panel center' },
         h('h2', { textContent: r.win ? `🎉 ${t('win')}` : `😵 ${t('lose')}` }),
+        r.win ? starRow(r.stars) : '',
         newBest ? h('div', { class: 'tagline', textContent: `🏆 ${t('newBest')}` }) : '',
         lines,
         h('div', { class: 'list' },

@@ -3,7 +3,7 @@
 Game web vui nhộn: dẫn cả đàn kiến tí hon đi ăn vụn bánh, chui qua cổng nhân/chia, khiêng mồi to và hạ trùm!
 A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right gates and beat the boss!
 
-**▶ Chơi ngay / Play:** https://thanhphong3.github.io/ant-game/
+**▶ Chơi ngay / Play:** https://thanhphong3.github.io/Ant-game/
 
 ## Cách chơi / How to play
 - **Kéo / vuốt** (hoặc phím ← →) để dẫn đàn kiến. / **Drag / swipe** (or ← → keys) to steer.

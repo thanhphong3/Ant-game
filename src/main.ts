@@ -645,7 +645,13 @@ window.addEventListener('keydown', (e) => {
   }
 });
 window.addEventListener('keyup', (e) => run?.key(e.code, false));
+// Phones only let audio start from the END of a tap (touchend / click), not from
+// pointerdown, so listen for those everywhere, on every tap, until it is running.
+for (const ev of ['touchend', 'pointerup', 'click', 'keydown'] as const) {
+  window.addEventListener(ev, () => sound.unlock(), { capture: true, passive: true });
+}
 document.addEventListener('visibilitychange', () => {
+  sound.sleep(document.hidden);
   if (document.hidden && run && !run.paused && !run.ended && run.phase !== 'ready') pauseScreen();
 });
 

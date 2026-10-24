@@ -39,7 +39,24 @@ export class Sound {
   private timer: number | null = null;
   party = false; // DJ captain speeds the music up
 
+  private silentEl: HTMLAudioElement | null = null;
+
+  /**
+   * Must run inside a user gesture (tap end / click / key). Mobile browsers
+   * keep Web Audio silent until then, and iOS routes it through the ringer,
+   * so the mute switch would silence the game unless we ask for "playback".
+   */
   unlock() {
+    const nav = navigator as any;
+    if (nav.audioSession && nav.audioSession.type !== 'playback') {
+      try {
+        nav.audioSession.type = 'playback'; // iOS 16.4+: ignore the silent switch, like a video would
+      } catch {
+        /* not supported */
+      }
+    } else if (!nav.audioSession && /iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document) {
+      this.playSilence(); // older iOS: an <audio> element playing switches the session to playback
+    }
     if (!this.ctx) {
       const AC = window.AudioContext || (window as any).webkitAudioContext;
       if (!AC) return;
@@ -57,8 +74,62 @@ export class Sound {
       const d = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.applySettings();
+      // Old WebKit only unlocks once something actually plays during the gesture.
+      const blip = this.ctx.createBufferSource();
+      blip.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+      blip.connect(this.ctx.destination);
+      blip.start(0);
+      // Music asked for before audio existed (e.g. the menu tune) starts now.
+      const want = this.mode;
+      this.mode = 'off';
+      this.setMusic(want);
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    // iOS also parks the context as "interrupted" after a call or an app switch.
+    if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+    if (this.silentEl?.paused) this.silentEl.play().catch(() => {});
+  }
+
+  /** Pause everything while the tab is hidden; pick back up on return. */
+  sleep(hidden: boolean) {
+    if (!this.ctx) return;
+    if (hidden) {
+      this.ctx.suspend().catch(() => {});
+      this.silentEl?.pause();
+    } else {
+      this.ctx.resume().catch(() => {});
+      this.silentEl?.play().catch(() => {});
+    }
+  }
+
+  private playSilence() {
+    if (!this.silentEl) {
+      // 0.1 s of 8 kHz silence as a WAV data URI, looped
+      const n = 800;
+      const buf = new ArrayBuffer(44 + n);
+      const v = new DataView(buf);
+      const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      str(0, 'RIFF');
+      v.setUint32(4, 36 + n, true);
+      str(8, 'WAVEfmt ');
+      v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true);
+      v.setUint16(22, 1, true);
+      v.setUint32(24, 8000, true);
+      v.setUint32(28, 8000, true);
+      v.setUint16(32, 1, true);
+      v.setUint16(34, 8, true);
+      str(36, 'data');
+      v.setUint32(40, n, true);
+      for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+      let bin = '';
+      new Uint8Array(buf).forEach((b) => (bin += String.fromCharCode(b)));
+      const el = new Audio(`data:audio/wav;base64,${btoa(bin)}`);
+      el.loop = true;
+      el.setAttribute('playsinline', '');
+      el.setAttribute('x-webkit-airplay', 'deny');
+      this.silentEl = el;
+    }
+    if (this.silentEl.paused) this.silentEl.play().catch(() => {});
   }
 
   applySettings() {

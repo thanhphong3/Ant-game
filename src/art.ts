@@ -1616,6 +1616,84 @@ export function drawGround(ctx: C, theme: ThemeDef, themeIdx: number, camD: numb
         }
       }
       break;
+    case 5: // bathroom: little square tiles and soap bubbles
+      ctx.strokeStyle = theme.bg2;
+      ctx.lineWidth = 3;
+      for (let d = Math.floor(dBot / 25) * 25; d < dTop + 25; d += 25) {
+        ctx.beginPath();
+        ctx.moveTo(-TRACK_HALF, -(d - camD));
+        ctx.lineTo(TRACK_HALF, -(d - camD));
+        ctx.stroke();
+      }
+      for (let c = 1; c < 16; c++) {
+        ctx.beginPath();
+        ctx.moveTo(-TRACK_HALF + c * 25, top);
+        ctx.lineTo(-TRACK_HALF + c * 25, bottom);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1.5;
+      for (let d = d0; d < dTop + T; d += T) {
+        for (let c = 0; c < 8; c++) {
+          const r = hash2(d, c);
+          if (r < 0.75) continue;
+          const bx = -TRACK_HALF + c * T + r * 40;
+          const by = -(d - camD) - r * 40;
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.strokeStyle = 'rgba(120,190,230,0.8)';
+          ctx.beginPath();
+          ctx.arc(bx, by, 4 + r * 7, 0, TAU);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      break;
+    case 6: // fridge: wire shelf bars and frost
+      ctx.strokeStyle = theme.bg2;
+      ctx.lineWidth = 6;
+      for (let d = Math.floor(dBot / 40) * 40; d < dTop + 40; d += 40) {
+        ctx.beginPath();
+        ctx.moveTo(-TRACK_HALF, -(d - camD));
+        ctx.lineTo(TRACK_HALF, -(d - camD));
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      for (let d = d0; d < dTop + T; d += T) {
+        for (let c = 0; c < 8; c++) {
+          const r = hash2(d, c);
+          if (r < 0.7) continue;
+          const fx = -TRACK_HALF + c * T + r * 40;
+          const fy = -(d - camD) - r * 40;
+          for (let k = 0; k < 3; k++) {
+            const a = (k / 3) * Math.PI;
+            ctx.beginPath();
+            ctx.moveTo(fx - Math.cos(a) * 6, fy - Math.sin(a) * 6);
+            ctx.lineTo(fx + Math.cos(a) * 6, fy + Math.sin(a) * 6);
+            ctx.stroke();
+          }
+        }
+      }
+      break;
+    case 7: // schoolyard running track with chalk lanes
+      ctx.strokeStyle = theme.bg2;
+      ctx.lineWidth = 4;
+      for (let c = 1; c < 5; c++) {
+        ctx.beginPath();
+        ctx.moveTo(-TRACK_HALF + c * 80, top);
+        ctx.lineTo(-TRACK_HALF + c * 80, bottom);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      for (let d = Math.floor(dBot / 160) * 160; d < dTop + 160; d += 160) {
+        for (let c = 0; c < 5; c++) {
+          const r = hash2(d, c);
+          if (r < 0.6) continue;
+          ctx.font = '800 22px "Baloo 2", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(String(1 + Math.floor(r * 9)), -TRACK_HALF + c * 80 + 40, -(d - camD) - r * 120);
+        }
+      }
+      break;
   }
   // wobbly edges
   for (const s of [-1, 1]) {
@@ -1634,7 +1712,7 @@ export function drawGround(ctx: C, theme: ThemeDef, themeIdx: number, camD: numb
 
 function drawSideDecor(ctx: C, theme: number, x: number, y: number, r: number) {
   if (r < 0.35) return;
-  if (theme === 0 || theme === 2) {
+  if (theme === 0 || theme === 2 || theme === 7) {
     if (r > 0.75) {
       // flower
       const col = ['#ff9fd0', '#ffd166', '#fff', '#c7b3ff'][Math.floor(r * 40) % 4];
@@ -1661,7 +1739,17 @@ function drawSideDecor(ctx: C, theme: number, x: number, y: number, r: number) {
       ctx.lineTo(x + 5, y - 5);
       ctx.stroke();
     }
-  } else if (theme === 4) {
+  } else if (theme === 6) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI + r;
+      ctx.beginPath();
+      ctx.moveTo(x - Math.cos(a) * 7, y - Math.sin(a) * 7);
+      ctx.lineTo(x + Math.cos(a) * 7, y + Math.sin(a) * 7);
+      ctx.stroke();
+    }
+  } else if (theme === 4 || theme === 5) {
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.beginPath();
     ctx.arc(x, y, 3 + r * 6, 0, TAU);
@@ -1675,4 +1763,76 @@ function drawSideDecor(ctx: C, theme: number, x: number, y: number, r: number) {
     ctx.arc(x + 12, y + 8, 1.5 + r * 2, 0, TAU);
     ctx.fill();
   }
+}
+
+// ---------------------------------------------------------------- slippery puddle & desk fan
+export function drawPuddle(ctx: C, x: number, y: number, rx: number, ry: number, seed: number, t: number) {
+  blob(ctx, x, y, rx, ry, seed, 0.1, 0, 14);
+  paint(ctx, 'rgba(126,200,255,0.55)', 2.4, '#4a9fd8');
+  blob(ctx, x - rx * 0.3, y - ry * 0.25, rx * 0.35, ry * 0.18, seed + 3, 0.1, -0.2, 10);
+  paint(ctx, 'rgba(255,255,255,0.65)', 0);
+  // ripples
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 2; i++) {
+    const k = (t * 0.6 + i * 0.5) % 1;
+    ctx.globalAlpha = 1 - k;
+    ctx.beginPath();
+    ctx.ellipse(x + rx * 0.25, y + ry * 0.2, 6 + k * rx * 0.4, 3 + k * ry * 0.3, 0, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** A desk fan parked at the edge of the track, blowing towards the other side. */
+export function drawFan(ctx: C, x: number, y: number, side: number, t: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  // stand
+  rrect(ctx, -8, 18, 16, 30, 4, 7, 0.4);
+  paint(ctx, '#9aa7b8');
+  blob(ctx, 0, 48, 26, 9, 9, 0.05);
+  paint(ctx, '#7d8899');
+  // cage + blades
+  blob(ctx, 0, 0, 34, 34, 11, 0.04);
+  paint(ctx, '#e8f4ff');
+  ctx.save();
+  ctx.rotate(t * 18 * -side);
+  for (let i = 0; i < 3; i++) {
+    ctx.rotate(TAU / 3);
+    blob(ctx, 14, 0, 14, 7, 20 + i, 0.08, 0.3);
+    paint(ctx, '#7ed6ff', 1.8);
+  }
+  ctx.restore();
+  blob(ctx, 0, 0, 7, 7, 30, 0.05);
+  paint(ctx, '#ff7eb6', 1.8);
+  ctx.strokeStyle = 'rgba(43,34,51,0.35)';
+  ctx.lineWidth = 1.5;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 12, -32);
+    ctx.lineTo(i * 12, 32);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Gusts streaking across the track between y0 and y1 (screen space), blowing in direction `dir`. */
+export function drawWind(ctx: C, y0: number, y1: number, dir: number, t: number) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 3;
+  const span = TRACK_HALF * 2 + 120;
+  for (let i = 0; i < 9; i++) {
+    const y = y0 + ((i * 0.618) % 1) * (y1 - y0);
+    const p = ((t * 0.9 + i * 0.37) % 1) * span - span / 2;
+    const x = p * dir;
+    ctx.globalAlpha = 0.35 + 0.4 * Math.sin(((t * 0.9 + i * 0.37) % 1) * Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(x - 30 * dir, y);
+    ctx.quadraticCurveTo(x, y - 6, x + 30 * dir, y);
+    ctx.stroke();
+  }
+  ctx.restore();
 }

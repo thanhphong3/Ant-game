@@ -27,6 +27,18 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 - 🍀 Thắng xong còn có thanh **nhân thưởng may mắn**: bấm dừng kim đúng ô ×3 để nhân ba số mật!
 - 🎉 Đàn kiến chạm mốc 25, 50, 100… con sẽ được ăn mừng.
 
+## Mới trong v1.5
+- 🎓 **Hướng dẫn tận tay** ở màn 1–2: ngón tay chỉ đường, chậm thời gian khi gặp vụn bánh, cổng, chướng ngại, hũ kiến và đòn trùm.
+- 🦹 **Mỗi trùm một tuyệt chiêu**: Nhện thả lưới tơ ngay đầu, Ếch quét lưỡi gần hết sân, Thằn lằn quất đuôi 3 nhịp, Bọ Ngựa song đao chém hai mép, Ong mưa kim, Vua Bọ Hung gây động đất chỉ chừa một ô an toàn.
+- 📖 **Chương**: mỗi 10 màn là một chương có tên và sân nhà riêng, kết thúc bằng **👑 Đại trùm** đội vương miện và rương mật lớn.
+- 🛁 3 bối cảnh mới: phòng tắm, tủ lạnh, sân trường. Chướng ngại mới: **vũng nước trơn** (từ màn 12, khó bẻ lái) và **quạt bàn** thổi lệch đàn kiến (từ màn 16).
+- 🗺️ **Bản đồ**: chơi lại màn cũ để gom sao; cứ 15 ⭐ mở một **rương sao**.
+- 🏆 **16 thành tựu**, nhiều cái mở khóa **màu đàn kiến** mới (sô-cô-la, hồng, xanh biển, bạc hà, cam, tím).
+- 📸 Nút **Khoe** ở màn thắng: tạo ảnh chiến thắng để chia sẻ qua Zalo/Messenger (hoặc tải về).
+- 📲 **Cài ra màn hình chính** như app và **chơi được khi mất mạng** (PWA).
+- 📊 **Thống kê** trong ⚙️: tỉ lệ thắng, màn khó nhất, số lần thử từng màn.
+- 🎁 Người chơi cũ được **hoàn lại toàn bộ mật** đã tiêu cho nâng cấp (theo giá cũ) để nâng cấp lại theo giá mới.
+
 ## Tính năng / Features
 - Màn chơi vô hạn, sinh ngẫu nhiên theo seed, 5 bối cảnh: khăn picnic, bàn bếp, vườn, sàn gỗ, xứ kẹo.
 - 🏠 Tổ kiến: 5 nâng cấp (đàn khởi đầu, sức mạnh, nam châm, giáp lá, hũ mật). Độ khó tăng dần đều theo màn và theo mức nâng cấp, được cân chỉnh bằng bot tự chơi hàng trăm lượt.

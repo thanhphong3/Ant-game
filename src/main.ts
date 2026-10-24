@@ -1,12 +1,14 @@
 import './style.css';
 import { drawAccessory, drawAnt, drawCrumb, drawGround, makeAntSprites, setBoil, type AntSprites } from './art';
 import { Sound } from './audio';
-import { CAPTAINS, THEMES, UPGRADES, upgradeCost, type CaptainId } from './data';
+import { CAPTAINS, THEMES, UPGRADES, chapterDef, chapterOf, upgradeCost, type CaptainId } from './data';
 import { Run, type RunResult, type RunStats } from './game';
 import { getLang, setLang, t, tr } from './i18n';
-import { generateLevel, isHardLevel } from './level';
+import { generateLevel, isFinale, isHardLevel, type Level } from './level';
+import { ACHIEVEMENTS, SKINS, STARS_PER_CHEST, achReady, chestReward, skinColor } from './meta';
 import { bonusReady, claimable, makeQuests, questDef, trackQuests } from './quests';
 import { hashString } from './rng';
+import { shareWin } from './share';
 import { loadSave, resetSave, todayKey, writeSave } from './save';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -34,6 +36,7 @@ resize();
 
 let run: Run | null = null;
 let runIsDaily = false;
+let runLevel = 1; // level being played (lower than save.level when replaying)
 let giftOffered = false;
 
 // ------------------------------------------------------------------ helpers
@@ -123,7 +126,53 @@ function stats(): RunStats {
     plusBoost: c === 'chubby' ? 1.25 : 1,
     crumbHoneyMult: c === 'dj' ? 2 : 1,
     captain: c,
+    skin: skinColor(save.skin),
   };
+}
+
+// The v1.4 rebalance made upgrades pricier. Saves from before it get every bit of honey
+// they spent back (at the old prices) and re-buy at the new ones, so nobody keeps a cheap head start.
+let refundPending = 0;
+if (save.ver < 2) {
+  let spent = 0;
+  for (const u of UPGRADES) for (let i = 0; i < save.upgrades[u.id]; i++) spent += Math.round(u.baseCost * Math.pow(1.38, i));
+  if (spent > 0) {
+    save.honey += spent;
+    for (const u of UPGRADES) save.upgrades[u.id] = 0;
+    refundPending = spent;
+  }
+  save.ver = 2;
+  persist();
+}
+
+function refundScreen() {
+  const amount = refundPending;
+  refundPending = 0;
+  show(
+    honeyPill(),
+    h('div', { class: 'screen' },
+      h('div', { class: 'panel center' },
+        h('h2', { textContent: `🎁 ${t('refundTitle')}` }),
+        h('div', { class: 'tagline', textContent: t('refundSub', fmt(amount)) }),
+        h('div', { class: 'list' }, btn(`🏠 ${t('nest')}`, 'big', nestScreen), btn(`↩ ${t('back')}`, 'white small', menuScreen)),
+      ),
+    ),
+  );
+}
+
+const totalStars = () => Object.values(save.stars).reduce((a, b) => a + b, 0);
+const chestsReady = () => Math.floor(totalStars() / STARS_PER_CHEST) - save.chests;
+
+/** Chapter name and a 10-pip progress strip under the play button. */
+function chapterBar() {
+  const ch = chapterOf(save.level);
+  const done = save.level - 1 - (ch - 1) * 10;
+  const pips = h('div', { class: 'ch-pips' });
+  for (let i = 1; i <= 10; i++) pips.append(h('div', { class: `ch-pip${i <= done ? ' on' : ''}${i === done + 1 ? ' cur' : ''}${i === 10 ? ' boss' : ''}` }));
+  return h('div', { class: 'chapter-bar' },
+    h('div', { class: 'ch-name', textContent: `📖 ${t('chapter', ch)} · ${tr(chapterDef(ch).name)}` }),
+    pips,
+  );
 }
 
 // ------------------------------------------------------------------ screens
@@ -149,10 +198,13 @@ function menuScreen() {
       h('div', { class: 'tagline', textContent: t('tagline') }),
       h('div', { style: 'height:8px' }),
       btn(`▶ ${t('play')} · ${levelName(save.level)}`, 'big', () => startRun(false)),
+      chapterBar(),
       btn(`📅 ${t('daily')}${best ? `<span class="best">&nbsp;(${t('dailyBest')}: ${fmt(best)})</span>` : ''}`, 'sky', () => startRun(true)),
-      h('div', { class: 'row' },
-        btn(`🏠 ${t('nest')}`, 'pink', nestScreen),
-        btn(`🐜 ${t('colony')}`, 'grape', collectionScreen),
+      h('div', { class: 'menu-grid' },
+        btn(`🏠 ${t('nest')}`, 'pink tile', nestScreen),
+        btn(`🐜 ${t('colony')}`, 'grape tile', collectionScreen),
+        btn(`🗺️ ${t('map')}${chestsReady() > 0 ? '<span class="dot">!</span>' : ''}`, 'mint tile', mapScreen),
+        btn(`🏆 ${t('achievements')}${achReady(save.life, save.ach).length ? `<span class="dot">${achReady(save.life, save.ach).length}</span>` : ''}`, 'sun tile', achScreen),
       ),
       h('div', { class: 'row' },
         btn(`📜 ${t('quests')}${nq ? `<span class="dot">${nq}</span>` : ''}`, 'quest-btn', questScreen),
@@ -160,8 +212,12 @@ function menuScreen() {
         btn('⚙️', 'white icon-btn', settingsScreen),
       ),
     ),
-    h('div', { class: 'version', textContent: 'v1.4' }),
+    h('div', { class: 'version', textContent: 'v1.5' }),
   );
+  if (refundPending) {
+    refundScreen();
+    return;
+  }
   // Pop the daily gift open by itself, once per visit.
   if (gd && !giftOffered) {
     giftOffered = true;
@@ -259,6 +315,36 @@ function antPreview(id: CaptainId) {
   return h('div', { class: 'pv' }, cv);
 }
 
+function skinRow() {
+  const row = h('div', { class: 'skins' });
+  for (const k of SKINS) {
+    const owned = save.skins.includes(k.id);
+    const cv = h('canvas', { width: 96, height: 96 });
+    const g = cv.getContext('2d')!;
+    g.scale(2, 2);
+    drawAnt(g, (skinSpr[k.id] ??= makeAntSprites(k.color)), 24, 26, 0, 40, 0);
+    row.append(
+      h('button', {
+        class: `skin${save.skin === k.id ? ' on' : ''}${owned ? '' : ' locked'}`,
+        title: owned ? tr(k.name) : t('skinLocked'),
+        onclick: () => {
+          if (!owned) {
+            sound.nope();
+            toast(`🔒 ${t('skinLocked')}`);
+            return;
+          }
+          save.skin = k.id;
+          persist();
+          sound.buy();
+          collectionScreen();
+        },
+      }, cv, h('span', { textContent: owned ? tr(k.name) : '🔒' })),
+    );
+  }
+  return row;
+}
+const skinSpr: Record<string, AntSprites> = {};
+
 function collectionScreen() {
   const grid = h('div', { class: 'grid' });
   for (const c of CAPTAINS) {
@@ -298,7 +384,147 @@ function collectionScreen() {
   show(
     honeyPill(),
     h('div', { class: 'screen' },
-      h('div', { class: 'panel' }, h('h2', { textContent: `🐜 ${t('captain')}` }), grid, h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen))),
+      h('div', { class: 'panel' }, h('h2', { textContent: `🐜 ${t('captain')}` }), grid, h('h2', { textContent: `🎨 ${t('skins')}` }), skinRow(), h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen))),
+    ),
+  );
+}
+
+function mapScreen() {
+  const wrap = h('div', { class: 'map' });
+  const ready = chestsReady();
+  const stars = totalStars();
+  const chestFill = h('div', { class: 'qfill' });
+  chestFill.style.width = `${ready > 0 ? 100 : ((stars % STARS_PER_CHEST) / STARS_PER_CHEST) * 100}%`;
+  const chest = h('div', { class: `item${ready > 0 ? ' ready' : ''}` },
+    h('div', { class: 'ico', textContent: ready > 0 ? '🎁' : '📦' }),
+    h('div', { class: 'info' },
+      h('div', { class: 'name', textContent: `${t('chest')} · ⭐ ${stars}` }),
+      h('div', { class: 'qbar' }, chestFill),
+      h('div', { class: 'desc', textContent: ready > 0 ? '' : t('chestNext', STARS_PER_CHEST - (stars % STARS_PER_CHEST)) }),
+    ),
+    ready > 0
+      ? btn(`${t('claim')} 🍯${fmt(chestReward(save.chests))}`, 'small', () => {
+          save.honey += chestReward(save.chests);
+          save.chests++;
+          persist();
+          sound.gift();
+          toast(`🎉 +${fmt(chestReward(save.chests - 1))} 🍯`);
+          mapScreen();
+        })
+      : h('div', { class: 'qreward', textContent: `🍯 ${fmt(chestReward(save.chests))}` }),
+  );
+  for (let ch = chapterOf(save.level); ch >= 1; ch--) {
+    const grid = h('div', { class: 'lv-grid' });
+    for (let n = (ch - 1) * 10 + 1; n <= ch * 10; n++) {
+      const open = n <= save.level;
+      const st = save.stars[n] ?? 0;
+      const cell = h('button', {
+        class: `lv${open ? '' : ' locked'}${n === save.level ? ' cur' : ''}${isFinale(n) ? ' fin' : isHardLevel(n) ? ' hard' : ''}`,
+        innerHTML: `<b>${open ? n : '🔒'}</b><i>${n < save.level ? '★'.repeat(st) + '☆'.repeat(3 - st) : isFinale(n) ? '👑' : isHardLevel(n) ? '💀' : ''}</i>`,
+        onclick: () => {
+          if (!open) return sound.nope();
+          sound.click();
+          startRun(false, n);
+        },
+      });
+      grid.append(cell);
+    }
+    wrap.append(h('div', { class: 'ch-title', textContent: `📖 ${t('chapter', ch)} · ${tr(chapterDef(ch).name)}` }), grid);
+  }
+  show(
+    honeyPill(),
+    h('div', { class: 'screen' },
+      h('div', { class: 'panel' },
+        h('h2', { textContent: `🗺️ ${t('map')}` }),
+        h('div', { class: 'tagline', textContent: t('mapSub') }),
+        h('div', { class: 'list' }, chest),
+        wrap,
+        h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen)),
+      ),
+    ),
+  );
+}
+
+function achScreen() {
+  const list = h('div', { class: 'list' });
+  const order = [...ACHIEVEMENTS].sort((a, b) => {
+    const rank = (x: typeof a) => (save.ach.includes(x.id) ? 2 : save.life[x.stat] >= x.goal ? 0 : 1);
+    return rank(a) - rank(b);
+  });
+  for (const a of order) {
+    const prog = Math.min(a.goal, save.life[a.stat]);
+    const done = prog >= a.goal;
+    const claimed = save.ach.includes(a.id);
+    const fill = h('div', { class: 'qfill' });
+    fill.style.width = `${(prog / a.goal) * 100}%`;
+    const skin = a.skin ? SKINS.find((k) => k.id === a.skin)! : null;
+    const action = claimed
+      ? h('div', { class: 'btn small white', textContent: '✔' })
+      : done
+        ? btn(`${t('claim')} 🍯${fmt(a.reward)}`, 'small', () => {
+            save.ach.push(a.id);
+            save.honey += a.reward;
+            if (skin && !save.skins.includes(skin.id)) save.skins.push(skin.id);
+            persist();
+            sound.win();
+            if (skin) toast(`🎨 ${t('skinUnlock', tr(skin.name))}`, 2000);
+            achScreen();
+          })
+        : h('div', { class: 'qreward', textContent: `🍯 ${fmt(a.reward)}` });
+    list.append(
+      h('div', { class: `item${claimed ? ' claimed' : done ? ' ready' : ''}` },
+        h('div', { class: 'ico', textContent: a.icon }),
+        h('div', { class: 'info' },
+          h('div', { class: 'name', textContent: tr(a.name) }),
+          h('div', { class: 'desc', textContent: tr(a.desc).replace('{0}', fmt(a.goal)) + (skin ? ` · 🎨 ${tr(skin.name)}` : '') }),
+          h('div', { class: 'qbar' }, fill),
+          h('div', { class: 'desc', textContent: `${fmt(prog)} / ${fmt(a.goal)}` }),
+        ),
+        action,
+      ),
+    );
+  }
+  show(
+    honeyPill(),
+    h('div', { class: 'screen' },
+      h('div', { class: 'panel' },
+        h('h2', { textContent: `🏆 ${t('achievements')} · ${save.ach.length}/${ACHIEVEMENTS.length}` }),
+        list,
+        h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen)),
+      ),
+    ),
+  );
+}
+
+function statsScreen() {
+  const L = save.life;
+  const row = (label: string, v: string) => h('div', {}, h('span', { textContent: label }), h('span', { textContent: v }));
+  let hardest = 0;
+  for (const [n, ls] of Object.entries(save.levels)) if (!hardest || ls.tries > (save.levels[hardest]?.tries ?? 0)) hardest = +n;
+  const recent = h('div', { class: 'result-lines' });
+  for (let n = Math.max(1, save.level - 9); n <= save.level; n++) {
+    const ls = save.levels[n];
+    if (ls) recent.append(row(`${levelName(n)}`, `${ls.tries} / ${ls.wins}${ls.quits ? ` · ⏏${ls.quits}` : ''}`));
+  }
+  show(
+    h('div', { class: 'screen' },
+      h('div', { class: 'panel' },
+        h('h2', { textContent: `📊 ${t('stats')}` }),
+        h('div', { class: 'result-lines' },
+          row(`🎮 ${t('statRuns')}`, fmt(L.runs)),
+          row(`🏆 ${t('statWins')}`, fmt(L.wins)),
+          row(`📈 ${t('statRate')}`, L.runs ? `${Math.round((L.wins / L.runs) * 100)}%` : '–'),
+          row(`👑 ${t('statBosses')}`, fmt(L.bosses)),
+          row(`🐜 ${t('statSwarm')}`, fmt(L.maxAnts)),
+          row(`🍞 ${t('statCrumbs')}`, fmt(L.crumbs)),
+          row(`⭐ ${t('statStars')}`, fmt(totalStars())),
+          row(`⏏ ${t('statQuits')}`, fmt(L.quits)),
+          hardest ? row(`💀 ${t('statHardest')}`, `${levelName(hardest)} · ${t('statTries', save.levels[hardest].tries)}`) : '',
+        ),
+        recent.childElementCount ? h('div', { class: 'tagline', textContent: t('statRecent') }) : '',
+        recent.childElementCount ? recent : '',
+        h('div', { class: 'center', style: 'margin-top:12px' }, btn(`↩ ${t('back')}`, 'white', settingsScreen)),
+      ),
     ),
   );
 }
@@ -386,6 +612,7 @@ function settingsScreen() {
           persist();
           settingsScreen();
         })),
+        h('div', { class: 'setting' }, `📊 ${t('stats')}`, btn('▶', 'small sky', statsScreen)),
         h('div', { class: 'setting' }, '', btn(`🗑 ${t('reset')}`, 'small pink', () => {
           if (confirm(t('resetConfirm'))) {
             save = resetSave();
@@ -406,18 +633,21 @@ function setLanguage(l: 'vi' | 'en') {
 }
 
 // ------------------------------------------------------------------ play
-function startRun(daily: boolean) {
+function startRun(daily: boolean, level = save.level) {
   sound.unlock();
+  noteQuit();
   runIsDaily = daily;
+  runLevel = daily ? 0 : level;
   const key = todayKey();
   const lv = daily
     ? generateLevel(8, hashString('daily-' + key), hashString(key) % THEMES.length)
-    : generateLevel(save.level, hashString('level-' + save.level));
+    : generateLevel(level, hashString('level-' + level));
   lv.daily = daily;
   // Mercy rule: every failed attempt shaves 8% off the boss (down to 60%).
-  if (!daily) lv.bossHP = Math.max(8, Math.round(lv.bossHP * Math.max(0.6, 1 - save.fails * 0.08)));
+  if (!daily && level === save.level) lv.bossHP = Math.max(8, Math.round(lv.bossHP * Math.max(0.6, 1 - save.fails * 0.08)));
   sound.party = save.captain === 'dj';
   run = new Run(lv, stats(), sound, onRunEnd);
+  run.coach = !daily && !save.tutorial && level <= 2;
   sound.setMusic('menu');
   show(btn('⏸', 'white icon-btn pause-btn', pauseScreen));
 }
@@ -434,12 +664,25 @@ function pauseScreen() {
             if (run) run.paused = false;
             show(btn('⏸', 'white icon-btn pause-btn', pauseScreen));
           }),
-          btn(`↻ ${t('retry')}`, 'sky', () => startRun(runIsDaily)),
-          btn(`🏠 ${t('home')}`, 'white', menuScreen),
+          btn(`↻ ${t('retry')}`, 'sky', () => startRun(runIsDaily, runLevel || save.level)),
+          btn(`🏠 ${t('home')}`, 'white', () => {
+            noteQuit();
+            menuScreen();
+          }),
         ),
       ),
     ),
   );
+}
+
+/** Leaving a run halfway counts as a quit (for the stats screen). */
+function noteQuit() {
+  if (!run || run.ended || run.phase === 'ready' || runIsDaily) return;
+  const ls = (save.levels[runLevel] ??= { tries: 0, wins: 0, quits: 0 });
+  ls.quits++;
+  save.life.quits++;
+  run.ended = true;
+  persist();
 }
 
 const reviveCost = () => 25 + save.level * 8;
@@ -485,6 +728,7 @@ function reviveScreen(cur: Run, r: RunResult, free: boolean, cost: number) {
     close();
     if (free) save.freeRevive = todayKey();
     else save.honey -= cost;
+    save.life.revives++;
     persist();
     cur.revive();
     show(btn('⏸', 'white icon-btn pause-btn', pauseScreen));
@@ -506,21 +750,56 @@ function reviveScreen(cur: Run, r: RunResult, free: boolean, cost: number) {
 function finishRun(r: RunResult) {
   save.honey += r.total;
   const questsDone = trackQuests(quests(), r);
+  const achBefore = achReady(save.life, save.ach).length;
+  const life = save.life;
+  const tl = r.tally;
+  life.runs++;
+  life.crumbs += tl.crumbs;
+  life.bugs += tl.bugs;
+  life.counters += tl.counters;
+  life.jars += tl.jars;
+  life.smashed += tl.smashed;
+  life.maxAnts = Math.max(life.maxAnts, tl.maxAnts);
+  if (r.win) {
+    life.wins++;
+    life.bosses++;
+    if (r.stars === 3) life.threeStars++;
+  }
   let newBest = false;
+  let chapterBonus = 0;
   if (runIsDaily) {
+    life.dailies++;
     const k = todayKey();
     if (r.total > (save.daily[k] ?? 0)) {
       save.daily[k] = r.total;
       newBest = true;
     }
-  } else if (r.win) {
-    save.level++;
-    save.fails = 0;
   } else {
-    save.fails++;
+    const ls = (save.levels[runLevel] ??= { tries: 0, wins: 0, quits: 0 });
+    ls.tries++;
+    if (r.win) {
+      ls.wins++;
+      save.stars[runLevel] = Math.max(save.stars[runLevel] ?? 0, r.stars);
+    }
+    if (runLevel === save.level) {
+      if (r.win) {
+        if (isHardLevel(runLevel) && ls.tries === 1) life.hardFirstTry++;
+        if (isFinale(runLevel)) {
+          // chapter cleared: a big chest of honey
+          life.chapters++;
+          chapterBonus = 300 + chapterOf(runLevel) * 300;
+          save.honey += chapterBonus;
+        }
+        if (runLevel >= 2) save.tutorial = true;
+        save.level++;
+        save.fails = 0;
+      } else {
+        save.fails++;
+      }
+    }
   }
   persist();
-  resultScreen(r, newBest, questsDone);
+  resultScreen(r, newBest, questsDone, chapterBonus, achReady(save.life, save.ach).length > achBefore);
 }
 
 function starRow(n: number) {
@@ -581,7 +860,14 @@ function luckyBar(onStop: (mult: number) => void) {
   return h('div', { class: 'lucky' }, h('div', { class: 'lucky-title', textContent: t('lucky') }), bar, stop);
 }
 
-function resultScreen(r: RunResult, newBest: boolean, questsDone: number) {
+function shareBtn(lv: Level, r: RunResult) {
+  return btn(`📸 ${t('share')}`, 'sky small', async () => {
+    const res = await shareWin({ lv, stars: r.stars, ants: r.antsLeft, captain: save.captain, skin: skinColor(save.skin) });
+    if (res === 'saved') toast(t('shareSaved'));
+  });
+}
+
+function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapterBonus = 0, newAch = false) {
   const line = (label: string, v: number) => h('div', {}, h('span', { textContent: label }), h('span', { textContent: `+${fmt(v)}` }));
   const total = h('span', { textContent: '0' });
   const lines = h('div', { class: 'result-lines' },
@@ -608,7 +894,7 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number) {
     : '';
   const primary = r.win && !runIsDaily
     ? btn(`▶ ${levelName(save.level)}`, 'big', () => startRun(false))
-    : btn(`↻ ${t('retry')}`, 'big', () => startRun(runIsDaily));
+    : btn(`↻ ${t('retry')}`, 'big', () => startRun(runIsDaily, runLevel || save.level));
   show(
     pill,
     h('div', { class: 'screen dim' },
@@ -616,16 +902,23 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number) {
         h('h2', { textContent: r.win ? `🎉 ${t('win')}` : `😵 ${t('lose')}` }),
         r.win ? starRow(r.stars) : '',
         newBest ? h('div', { class: 'tagline', textContent: `🏆 ${t('newBest')}` }) : '',
+        chapterBonus ? h('div', { class: 'chapter-done', textContent: `📖 ${t('chapterDone', chapterOf(runLevel))} +${fmt(chapterBonus)} 🍯` }) : '',
         lines,
         lucky,
         h('div', { class: 'list' },
           primary,
-          h('div', { class: 'row' }, btn(`🏠 ${t('nest')}`, 'pink small', nestScreen), btn(`↩ ${t('home')}`, 'white small', menuScreen)),
+          h('div', { class: 'row' },
+            btn(`🏠 ${t('nest')}`, 'pink small', nestScreen),
+            r.win && run ? shareBtn(run.lv, r) : '',
+            btn(`↩ ${t('home')}`, 'white small', menuScreen),
+          ),
         ),
       ),
     ),
   );
   if (questsDone) setTimeout(() => toast(`📜 ${t('questDone')}`, 2200), 1100);
+  if (newAch) setTimeout(() => toast(`🏆 ${t('achNew')}`, 2200), 1500);
+  if (chapterBonus) setTimeout(() => sound.gift(), 600);
 }
 
 // ------------------------------------------------------------------ input
@@ -702,6 +995,11 @@ function frame(now: number) {
 
 // Exposed in dev builds only, for the balance-testing bot.
 if (import.meta.env.DEV) (window as any).__run = () => run;
+
+// Installable + playable offline (production builds only; dev would cache stale modules).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
 
 menuScreen();
 requestAnimationFrame(frame);

@@ -57,7 +57,30 @@ export const THEMES: ThemeDef[] = [
   { name: { vi: 'Vườn sau nhà', en: 'Backyard garden' }, bg: '#d9b98c', bg2: '#c9a372', side: '#7cc46a', edge: '#8a6a42' },
   { name: { vi: 'Sàn phòng ngủ', en: 'Bedroom floor' }, bg: '#f0c98f', bg2: '#e3b577', side: '#8fb6e8', edge: '#b98a4e' },
   { name: { vi: 'Xứ kẹo ngọt', en: 'Candy land' }, bg: '#fde7f6', bg2: '#d9f1ff', side: '#ffd36e', edge: '#e58fc4' },
+  { name: { vi: 'Phòng tắm', en: 'Bathroom' }, bg: '#e6f6ff', bg2: '#c4e6f8', side: '#9ad7c8', edge: '#4aa3c7' },
+  { name: { vi: 'Tủ lạnh', en: 'Fridge' }, bg: '#f4fbff', bg2: '#d3ecf8', side: '#b9def0', edge: '#7fb8d6' },
+  { name: { vi: 'Sân trường', en: 'Schoolyard' }, bg: '#ea9a72', bg2: '#fff7ec', side: '#86c96e', edge: '#c45c3a' },
 ];
+
+/** Ten levels make a chapter, each with its own home turf and a crowned boss at the end. */
+export const CHAPTERS: { name: Txt; theme: number }[] = [
+  { name: { vi: 'Buổi picnic náo loạn', en: 'Picnic panic' }, theme: 0 },
+  { name: { vi: 'Căn bếp bí ẩn', en: 'Kitchen mysteries' }, theme: 1 },
+  { name: { vi: 'Phòng tắm trơn trượt', en: 'Slippery bathroom' }, theme: 5 },
+  { name: { vi: 'Tủ lạnh băng giá', en: 'Frosty fridge' }, theme: 6 },
+  { name: { vi: 'Sân trường ồn ào', en: 'Noisy schoolyard' }, theme: 7 },
+  { name: { vi: 'Vườn sau nhà', en: 'Backyard jungle' }, theme: 2 },
+  { name: { vi: 'Xứ kẹo ngọt', en: 'Candy kingdom' }, theme: 4 },
+];
+export const chapterOf = (level: number) => Math.ceil(level / 10);
+export const chapterDef = (ch: number) => CHAPTERS[(ch - 1) % CHAPTERS.length];
+/** Home turf on even levels and the finale; the rest roam the themes unlocked so far. */
+export function levelTheme(level: number) {
+  const ch = chapterOf(level);
+  if (level % 2 === 0) return chapterDef(ch).theme;
+  const pool = ch === 1 ? 5 : THEMES.length;
+  return (Math.floor(level / 2) + ch) % pool;
+}
 
 export type BossKind = 'spider' | 'frog' | 'lizard' | 'mantis' | 'bee' | 'beetleKing';
 export const BOSSES: { kind: BossKind; name: Txt }[] = [
@@ -70,3 +93,13 @@ export const BOSSES: { kind: BossKind; name: Txt }[] = [
 ];
 
 export const pickTxt = (o: Txt, l: Lang) => o[l];
+
+/** Each boss's signature attack, shouted as it winds up. */
+export const BOSS_MOVES: Record<BossKind, { icon: string; name: Txt; hint: Txt }> = {
+  spider: { icon: '🕸️', name: { vi: 'Lưới tơ', en: 'Web drop' }, hint: { vi: 'Lưới rơi ngay đầu: chạy ra khỏi bóng!', en: 'The web drops right on you: run out from under it!' } },
+  frog: { icon: '👅', name: { vi: 'Lưỡi dài', en: 'Tongue lash' }, hint: { vi: 'Lưỡi quét gần hết sân: chạy hẳn sang mép bên kia!', en: 'The tongue sweeps most of the arena: run to the far edge!' } },
+  lizard: { icon: '🦎', name: { vi: 'Quất đuôi', en: 'Tail whip' }, hint: { vi: 'Đuôi quét 3 nhịp: lách vào chỗ vừa bị đập!', en: 'Three beats: slip in behind the sweep!' } },
+  mantis: { icon: '⚔️', name: { vi: 'Song đao', en: 'Scissor slash' }, hint: { vi: 'Hai mép bị chém: trốn vào giữa!', en: 'Both edges get slashed: hide in the middle!' } },
+  bee: { icon: '🐝', name: { vi: 'Mưa kim', en: 'Stinger rain' }, hint: { vi: 'Tìm khe hở giữa các mũi kim!', en: 'Find a gap between the stingers!' } },
+  beetleKing: { icon: '🪨', name: { vi: 'Động đất', en: 'Earthquake' }, hint: { vi: 'Cả sân rung: chui vào ô an toàn!', en: 'The whole arena shakes: squeeze into the safe spot!' } },
+};

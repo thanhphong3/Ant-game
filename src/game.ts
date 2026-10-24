@@ -1,13 +1,13 @@
 import {
   INK, TAU, TRACK_HALF, drawAccessory, drawAnt, drawBeetle, drawBoostPad, drawBoss, drawCrumb, drawFood, drawFoot,
-  drawFootShadow, drawGate, drawGround, drawJar, drawLadybug, drawObstacle, drawPowerUp, drawShield, drawSlamZone, drawSpeech, makeAntSprites,
+  drawFan, drawFootShadow, drawGate, drawPuddle, drawWind, drawGround, drawJar, drawLadybug, drawObstacle, drawPowerUp, drawShield, drawSlamZone, drawSpeech, makeAntSprites,
   paint, rrect, setBoil, text,
   type AntSprites, type BossVisual,
 } from './art';
 import type { Sound } from './audio';
-import { BOSSES, THEMES, type CaptainId } from './data';
+import { BOSS_MOVES, BOSSES, THEMES, chapterDef, chapterOf, type CaptainId } from './data';
 import { COMBO_WORDS, chatLine, t, tr, type ChatKind } from './i18n';
-import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, isHardLevel, revealMystery, slotOp, type GateOp, type Level, type Obstacle, type Squad } from './level';
+import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, isFinale, isHardLevel, revealMystery, slotOp, type GateOp, type Level, type Obstacle, type Squad } from './level';
 
 export interface RunStats {
   startAnts: number;
@@ -18,6 +18,8 @@ export interface RunStats {
   plusBoost: number;
   crumbHoneyMult: number;
   captain: CaptainId;
+  /** body colour of the swarm */
+  skin?: string;
 }
 
 /** What happened during a run, for daily quests. */
@@ -89,6 +91,19 @@ const DASH_TIME = 1.8;
 const DASH_SPEED = 1.9;
 const MILESTONES = [25, 50, 100, 150, 200, 300, 500, 1000];
 type SlamSide = -1 | 0 | 1;
+/** A boss attack: every x-range in `zones` gets smashed once the warning runs out. */
+export interface Slam {
+  zones: [number, number][];
+  t: number;
+  hit: number;
+  warn: number;
+  /** what comes right after this one lands (a one-two, or the next hit of a combo) */
+  next: Slam | null;
+  /** signature move: its icon, and it forgives a few more stragglers */
+  icon?: string;
+  /** share of the normal damage it deals */
+  dmg?: number;
+}
 
 const buzz = (ms: number | number[]) => {
   try {
@@ -130,15 +145,21 @@ export class Run {
   feverT = 0;
   dashT = 0;
   revives = 0;
+  /** first-time player: show guided tips with a little slow-mo */
+  coach = false;
+  private tip: { s: string; x: number; d: number; age: number; done: () => boolean } | null = null;
+  private tipsSeen = new Set<string>();
+  /** sideways drift from fan wind */
+  windOff = 0;
   private resumePhase: Phase = 'run';
   private chats: Chat[] = [];
   private chatCD = 0;
   private bossLine: { s: string; life: number } | null = null;
-  // boss slam: side of the arena about to be smashed (0 = the middle), its countdown,
-  // and an optional quick follow-up on another side
-  slam: { side: SlamSide; t: number; hit: number; warn: number; follow: SlamSide | null } | null = null;
+  // the boss attack being wound up (or landing), if any
+  slam: Slam | null = null;
   slamCD = 0.6;
   slamCount = 0;
+  private moveHinted = false;
   battle: Squad | null = null;
   tickAcc = 0;
   ended = false;
@@ -164,7 +185,7 @@ export class Run {
   ) {
     this.count = stats.startAnts;
     this.bossHP = this.bossMax = lv.bossHP;
-    this.spr = makeAntSprites();
+    this.spr = makeAntSprites(stats.skin);
     this.capSpr = makeAntSprites('#4a3558', 'rgba(255,255,255,0.7)');
     this.goldSpr = makeAntSprites('#d9961a', 'rgba(255,255,230,0.85)');
     this.rageSpr = makeAntSprites('#c23a4a', 'rgba(255,220,220,0.7)');
@@ -290,6 +311,44 @@ export class Run {
     this.bossLine = { s: chatLine(kind), life: 0 };
   }
 
+  // ------------------------------------------------------------ tutorial
+  private showTip(id: string, s: string, x: number, d: number, done: () => boolean) {
+    if (this.tipsSeen.has(id) || this.tip) return;
+    this.tipsSeen.add(id);
+    this.tip = { s, x, d, age: 0, done };
+    this.sound.tick();
+  }
+
+  private updateCoach(dt: number) {
+    if (this.tip) {
+      this.tip.age += dt;
+      if (this.tip.age > 0.6 && (this.tip.done() || this.tip.age > 4)) this.tip = null;
+      return;
+    }
+    const lv = this.lv;
+    if (this.phase === 'run') {
+      const c = lv.crumbs.find((c) => !c.taken && c.d - this.d > 60 && c.d - this.d < 200);
+      if (c) {
+        const before = this.tally.crumbs;
+        this.showTip('crumb', t('tipCrumb'), c.x, c.d, () => this.tally.crumbs > before);
+      }
+      const g = lv.gates.find((g) => !g.chosen && g.d - this.d > 0 && g.d - this.d < 260);
+      if (g) {
+        const worth = (op: GateOp) => (op.op === '?' ? this.count * 1.2 : applyGate(this.count, op));
+        const side = worth(g.left) >= worth(g.right) ? -1 : 1;
+        this.showTip('gate', t('tipGate'), (side * TRACK_HALF) / 2, g.d, () => Math.sign(this.x) === side && Math.abs(this.x) > 30);
+      }
+      const o = lv.obstacles.find((o) => !o.smashed && o.d - this.d > 0 && o.d - this.d < 230);
+      if (o) this.showTip('hazard', t('tipHazard'), o.x, o.d, () => this.d > o.d - 40);
+      const j = lv.jars.find((j) => !j.open && j.d - this.d > 0 && j.d - this.d < 260);
+      if (j) this.showTip('jar', t('tipJar'), j.x, j.d, () => j.open);
+    } else if (this.phase === 'boss' && this.slam && this.slam.hit <= 0 && !this.slam.icon) {
+      const [x0, x1] = this.slam.zones[0];
+      const safe = x0 < 0 ? TRACK_HALF * 0.6 : -TRACK_HALF * 0.6;
+      this.showTip('slam', t('tipSlam'), x1 - x0 > 150 ? safe : this.x > 0 ? -TRACK_HALF * 0.75 : TRACK_HALF * 0.75, this.bossCy, () => !this.slam || this.slam.hit > 0);
+    }
+  }
+
   // ------------------------------------------------------------ fx
   private poof(x: number, y: number, color: string, n: number) {
     for (let i = 0; i < n; i++) {
@@ -323,6 +382,10 @@ export class Run {
   update(dt: number) {
     if (this.paused) return;
     dt = Math.min(dt, 1 / 30);
+    if (this.coach) {
+      this.updateCoach(dt);
+      if (this.tip) dt *= 0.35; // slow-mo while a tip is up
+    }
     this.time += dt;
     this.phaseT += dt;
     setBoil(this.time);
@@ -333,12 +396,42 @@ export class Run {
     if (this.keys.right) this.targetX += 330 * dt;
     const lim = Math.max(0, TRACK_HALF - Math.min(this.radius * 0.85, TRACK_HALF));
     this.targetX = Math.max(-lim, Math.min(lim, this.targetX));
+    // desk fans blow the swarm sideways (giants and dashing ants don't care)
+    let blow = 0;
+    if (this.phase === 'run' && this.dashT <= 0 && this.giantT <= 0) {
+      for (const f of lv.fans) {
+        if (this.d < f.d0 || this.d > f.d1) continue;
+        blow = -f.side;
+        if (!f.hit) {
+          f.hit = true;
+          this.sound.warn();
+          this.float(this.x, this.d + this.radius + 40, t('wind'), '#7ed6ff', 22);
+          this.chat('bad', 0.5);
+        }
+      }
+    }
+    if (blow) this.windOff = Math.max(-190, Math.min(190, this.windOff + blow * 170 * dt));
+    else this.windOff *= Math.max(0, 1 - dt * 3);
+    // puddles make steering slippery
+    let slip = false;
+    if (this.phase === 'run' && this.giantT <= 0) {
+      for (const p of lv.puddles) {
+        if (((this.x - p.x) / p.rx) ** 2 + ((this.d - p.d) / p.ry) ** 2 > 1) continue;
+        slip = true;
+        if (!p.hit) {
+          p.hit = true;
+          this.float(this.x, this.d + this.radius + 40, t('slip'), '#7ed6ff', 22);
+          this.chat('bad', 0.5);
+        }
+      }
+    }
+    const aim = Math.max(-lim, Math.min(lim, this.targetX + this.windOff));
 
     let speed = 0;
     if (this.phase === 'run') speed = lv.speed * (this.dashT > 0 ? DASH_SPEED : 1);
     if (this.phase === 'bossIntro') speed = this.d < this.stopD ? lv.speed : 0;
     this.d = Math.min(this.d + speed * dt, this.phase === 'run' || this.phase === 'bossIntro' ? this.stopD : this.d);
-    if (this.phase !== 'win') this.x += (this.targetX - this.x) * Math.min(1, dt * 9);
+    if (this.phase !== 'win') this.x += (aim - this.x) * Math.min(1, dt * (slip ? 1.1 : 9));
 
     this.comboT -= dt;
     if (this.comboT <= 0) this.combo = 0;
@@ -882,6 +975,65 @@ export class Run {
     return side < 0 ? [-TRACK_HALF, -22] : [22, TRACK_HALF];
   }
 
+  /** Is this the last boss of a 10-level chapter? */
+  get finale() {
+    return !this.lv.daily && isFinale(this.lv.num);
+  }
+
+  private plainSlam(side: SlamSide, warn: number, next: Slam | null = null): Slam {
+    return { zones: [this.slamRange(side)], t: 0, hit: 0, warn, next };
+  }
+
+  /** Each boss's own trick, so every fight asks for a different dodge. */
+  private signature(): Slam {
+    const H = TRACK_HALF;
+    const cx = this.bossCx;
+    const side: -1 | 1 = Math.abs(cx) < 12 ? (Math.random() < 0.5 ? -1 : 1) : cx < 0 ? -1 : 1;
+    const icon = BOSS_MOVES[this.lv.boss].icon;
+    const mk = (zones: [number, number][], warn: number, dmg = 0.75, next: Slam | null = null): Slam => ({ zones, t: 0, hit: 0, warn, next, icon, dmg });
+    switch (this.lv.boss) {
+      case 'spider': {
+        // a web dropped right on top of the swarm: step out from under it
+        const x = Math.max(-H + 70, Math.min(H - 70, cx));
+        return mk([[x - 70, x + 70]], 0.8);
+      }
+      case 'frog':
+        // a tongue lash over most of the arena, from the swarm's side
+        return mk([side < 0 ? [-H, 55] : [-55, H]], 0.95);
+      case 'lizard': {
+        // tail whip sweeping across in three beats: duck in behind it
+        const thirds: [number, number][] = [[-H, -H / 3], [-H / 3, H / 3], [H / 3, H]];
+        if (side > 0) thirds.reverse();
+        const c = mk([thirds[2]], 0.38);
+        const b = mk([thirds[1]], 0.38, 0.75, c);
+        return mk([thirds[0]], 1.0, 1, b);
+      }
+      case 'mantis':
+        // scissor slash at both edges: only the middle is safe
+        return mk([[-H, -48], [48, H]], 0.95);
+      case 'bee': {
+        // a rain of stingers: find a gap between them
+        const zones: [number, number][] = [];
+        const xs = [Math.max(-H + 30, Math.min(H - 30, cx))];
+        for (let tries = 0; xs.length < 4 && tries < 40; tries++) {
+          const x = -H + 30 + Math.random() * (H * 2 - 60);
+          if (xs.every((o) => Math.abs(o - x) > 85)) xs.push(x);
+        }
+        for (const x of xs) zones.push([x - 30, x + 30]);
+        return mk(zones, 1.0);
+      }
+      case 'beetleKing': {
+        // the ground shakes everywhere except one safe hole, away from the swarm
+        let hole = 0;
+        for (let tries = 0; tries < 20; tries++) {
+          hole = -H + 60 + Math.random() * (H * 2 - 120);
+          if (Math.abs(hole - cx) > 110) break;
+        }
+        return mk([[-H, hole - 55], [hole + 55, H]], 1.15, 0.45);
+      }
+    }
+  }
+
   private updateSlam(dt: number) {
     const rage = this.bossV.rage;
     if (this.slam) {
@@ -889,7 +1041,7 @@ export class Run {
       if (sl.hit > 0) {
         sl.hit -= dt;
         if (sl.hit <= 0) {
-          this.slam = sl.follow === null ? null : { side: sl.follow, t: 0, hit: 0, warn: 0.65, follow: null };
+          this.slam = sl.next;
           if (this.slam) this.sound.warn();
         }
         return;
@@ -902,13 +1054,13 @@ export class Run {
       this.shake = 16;
       this.sound.slam();
       buzz(90);
-      const [x0, x1] = this.slamRange(sl.side);
-      for (let i = 0; i < 10; i++) this.poof(x0 + Math.random() * (x1 - x0), this.bossCy + (Math.random() - 0.5) * 120, SMOKE, 2);
-      const inZone = this.ants.filter((a) => a.x > x0 && a.x < x1).length;
+      const inside = (x: number) => sl.zones.some(([x0, x1]) => x > x0 && x < x1);
+      for (const [x0, x1] of sl.zones) for (let i = 0; i < 6; i++) this.poof(x0 + Math.random() * (x1 - x0), this.bossCy + (Math.random() - 0.5) * 120, SMOKE, 2);
+      const inZone = this.ants.filter((a) => inside(a.x)).length;
       const frac = this.ants.length ? inZone / this.ants.length : 0;
       // A clean dodge (a couple of stragglers is fine) earns a counter-attack.
-      if (frac < 0.05 || this.shieldT > 0) {
-        const dmg = Math.max(2, Math.round(this.bossMax * 0.05 * (this.rageT > 0 ? 1.5 : 1)));
+      if (frac < (sl.icon ? 0.12 : 0.05) || this.shieldT > 0) {
+        const dmg = Math.max(2, Math.round(this.bossMax * 0.05 * (this.rageT > 0 ? 1.5 : 1) * (sl.icon ? 1.4 : 1)));
         this.bossHP -= dmg;
         this.tally.counters++;
         this.bossV.hurt = 1;
@@ -917,18 +1069,33 @@ export class Run {
         this.sparkle(0, this.bossD - 40, '#ffd166', 20);
         this.chat('good', 0.5);
       } else {
-        const lost = Math.max(1, Math.round(this.count * frac * 0.3 * (1 - this.stats.dodge * 0.5)));
-        for (const a of this.ants) if (a.x > x0 && a.x < x1 && Math.random() < 0.5) this.poof(a.x, a.y, SMOKE, 2);
+        const lost = Math.max(1, Math.round(this.count * frac * 0.3 * (sl.dmg ?? 1) * (1 - this.stats.dodge * 0.5)));
+        for (const a of this.ants) if (inside(a.x) && Math.random() < 0.5) this.poof(a.x, a.y, SMOKE, 2);
         this.addCount(-lost, this.bossCx, this.bossCy);
+        const [x0, x1] = sl.zones[0];
         this.float((x0 + x1) / 2, this.bossCy + 40, `${t('ouch')} -${lost}`, '#ff8a80', 24);
         this.chatCD = 0;
         this.chat('hurt', 0.8);
       }
-      this.slamCD = rage ? 0.45 + Math.random() * 0.35 : 0.7 + Math.random() * 0.5;
+      if (!sl.next) this.slamCD = rage ? 0.45 + Math.random() * 0.35 : 0.7 + Math.random() * 0.5;
       return;
     }
     this.slamCD -= dt;
     if (this.slamCD > 0) return;
+    const n = this.slamCount++;
+    // Every few attacks the boss pulls out its signature move (more often when furious or at a chapter finale).
+    const every = (rage ? 2 : 3) - (this.finale ? 1 : 0);
+    if (n > 0 && n % Math.max(1, every) === every - 1) {
+      this.slam = this.signature();
+      const mv = BOSS_MOVES[this.lv.boss];
+      this.bossLine = { s: `${mv.icon} ${tr(mv.name)}!`, life: 0 };
+      this.sound.roar();
+      if (!this.moveHinted) {
+        this.moveHinted = true;
+        this.float(0, this.bossCy + 80, tr(mv.hint), '#fff', 18);
+      }
+      return;
+    }
     // Aim at the side holding most of the swarm, so the player has to move.
     let side: SlamSide = Math.abs(this.bossCx) < 12 ? (Math.random() < 0.5 ? -1 : 1) : this.bossCx < 0 ? -1 : 1;
     let follow: SlamSide | null = null;
@@ -937,9 +1104,9 @@ export class Run {
       if (Math.abs(this.bossCx) < 45 && k < 0.6) side = 0; // hiding in the middle stops working
       else if (k < 0.35) follow = side < 0 ? 1 : -1; // one-two: this side, then the other
     }
-    this.slam = { side, t: 0, hit: 0, warn: rage ? RAGE_WARN : SLAM_WARN, follow };
+    this.slam = this.plainSlam(side, rage ? RAGE_WARN : SLAM_WARN, follow === null ? null : this.plainSlam(follow, 0.65));
     this.sound.warn();
-    if (this.slamCount++ === 0) this.float(0, this.bossCy + 80, t('bossDodge'), '#fff', 20);
+    if (n === 0) this.float(0, this.bossCy + 80, t('bossDodge'), '#fff', 20);
   }
 
   private win() {
@@ -1089,13 +1256,22 @@ export class Run {
     // boss arena line
     if (vis(this.stopD + 40)) this.drawRibbon(ctx, Y(this.stopD + 40), '#ff7eb6', 'BOSS');
 
+    for (const p of lv.puddles) if (vis(p.d, 120)) drawPuddle(ctx, p.x, Y(p.d), p.rx, p.ry, p.seed, tm);
+    for (const f of lv.fans) {
+      if (!vis(f.d0, 400) && !vis(f.d1, 100)) continue;
+      drawWind(ctx, Y(f.d1), Y(f.d0), -f.side, tm);
+      drawFan(ctx, f.side * (TRACK_HALF + 6), Y((f.d0 + f.d1) / 2), f.side, tm);
+    }
     for (const b of lv.boosts) if (vis(b.d, 120)) drawBoostPad(ctx, b.x, Y(b.d), BOOST_W, BOOST_L, tm, b.used);
     for (const c of lv.crumbs) if (!c.taken && vis(c.d)) drawCrumb(ctx, c.kind, c.x, Y(c.d), c.seed, tm);
     for (const p of lv.powerups) if (!p.taken && vis(p.d)) drawPowerUp(ctx, p.kind, p.x, Y(p.d), p.seed, tm);
 
     if (this.slam) {
-      const [x0, x1] = this.slamRange(this.slam.side);
-      drawSlamZone(ctx, x0, x1, Y(this.bossD - 30), Y(this.stopD - 100), Math.min(1, this.slam.t / this.slam.warn), tm, this.slam.hit > 0);
+      const sl = this.slam;
+      for (const [x0, x1] of sl.zones) {
+        drawSlamZone(ctx, x0, x1, Y(this.bossD - 30), Y(this.stopD - 100), Math.min(1, sl.t / sl.warn), tm, sl.hit > 0);
+        if (sl.icon && sl.hit <= 0) text(ctx, sl.icon, (x0 + x1) / 2, Y(this.stopD - 100) - 24 - Math.abs(Math.sin(tm * 8)) * 6, 24, '#fff', INK);
+      }
     }
 
     for (const f of lv.foods) {
@@ -1212,11 +1388,19 @@ export class Run {
 
     // boss
     if (vis(this.bossD, 200)) {
-      drawBoss(ctx, lv.boss, 0, Y(this.bossD), tm, this.bossV);
+      const big = this.finale ? 1.22 : 1;
+      ctx.save();
+      ctx.translate(0, Y(this.bossD));
+      ctx.scale(big, big);
+      drawBoss(ctx, lv.boss, 0, 0, tm, this.bossV);
+      // chapter finale: the boss wears a crown
+      if (this.finale && !this.bossV.dead) text(ctx, '👑', Math.sin(tm * 2) * 4, -96 + Math.sin(tm * 3) * 3 + this.bossV.attack * 26, 34, '#fff', INK);
+      ctx.restore();
       if (!this.bossV.dead) {
-        this.badge(ctx, 0, Y(this.bossD) - 110, `❤ ${Math.max(0, Math.ceil(this.bossHP))}`, '#ef4b5f', 20);
+        const top = Y(this.bossD) - 110 * big - (this.finale ? 18 : 0);
+        this.badge(ctx, 0, top, `❤ ${Math.max(0, Math.ceil(this.bossHP))}`, '#ef4b5f', 20);
         const bname = BOSSES.find((b) => b.kind === lv.boss)!;
-        text(ctx, tr(bname.name), 0, Y(this.bossD) - 140, 16, '#fff', INK);
+        text(ctx, `${this.finale ? t('bigBoss') + ' ' : ''}${tr(bname.name)}`, 0, top - 30, 16, this.finale ? '#ffd166' : '#fff', INK);
       }
       if (this.bossLine) {
         const l = this.bossLine.life;
@@ -1232,6 +1416,12 @@ export class Run {
       if (s.state === 'warn' && s.timer > 0.55) drawFoot(ctx, s.x, Y(s.d), 58, 1 - (s.timer - 0.55) / 0.6);
       else if (s.state === 'down') drawFoot(ctx, s.x, Y(s.d), 58, 0);
       else if (s.state === 'up') drawFoot(ctx, s.x, Y(s.d), 58, s.timer / 0.5);
+    }
+
+    // tutorial pointer
+    if (this.tip) {
+      const bob = Math.abs(Math.sin(tm * 6)) * 12;
+      text(ctx, '👇', this.tip.x, Y(this.tip.d) - 50 - bob, 40, '#fff', INK);
     }
 
     // ant chatter
@@ -1401,12 +1591,30 @@ export class Run {
     }
 
     if (this.phase === 'ready') {
+      if (!this.lv.daily) {
+        // chapter title card
+        const ch = chapterOf(this.lv.num);
+        text(ctx, `📖 ${t('chapter', ch)} · ${this.lv.num - (ch - 1) * 10}/10`, W / 2, H * 0.3, 16 * u, '#fff', INK);
+        text(ctx, tr(chapterDef(ch).name), W / 2, H * 0.3 + 28 * u, 26 * u, '#ffd166', INK);
+      }
       const bob = Math.sin(this.time * 4) * 8;
       ctx.globalAlpha = 0.95;
       text(ctx, t('dragHint'), W / 2, H * 0.44, 22 * u, '#fff', INK);
       text(ctx, t('keyHint'), W / 2, H * 0.44 + 28 * u, 14 * u, '#fff', INK);
       text(ctx, '👆', W / 2 + bob * 3, H * 0.52, 40 * u, '#fff', INK);
       ctx.globalAlpha = 1;
+    }
+    if (this.tip) {
+      const k = Math.min(1, this.tip.age * 5);
+      ctx.save();
+      ctx.translate(W / 2, H * 0.24);
+      ctx.scale(k, k);
+      ctx.globalAlpha = 0.9;
+      rrect(ctx, -Math.min(W - 24, 380) / 2, -34 * u, Math.min(W - 24, 380), 68 * u, 18 * u, 5, 0.6);
+      paint(ctx, '#fffaf0', 3);
+      ctx.globalAlpha = 1;
+      text(ctx, this.tip.s, 0, 0, 19 * u, '#ff7eb6', INK);
+      ctx.restore();
     }
     if (this.phase === 'bossIntro') {
       const k = Math.min(1, this.phaseT * 3);

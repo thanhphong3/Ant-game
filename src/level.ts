@@ -1,4 +1,4 @@
-import { BOSSES, THEMES, type BossKind } from './data';
+import { BOSSES, levelTheme, type BossKind } from './data';
 import type { CrumbKind, FoodKind, ObstacleKind } from './art';
 import { TRACK_HALF } from './art';
 import { irange, mulberry32, pick, range, type Rng } from './rng';
@@ -37,6 +37,10 @@ export interface GoldBug {
   juke: number;
   seed: number;
 }
+/** Slippery puddle: steering goes mushy while the swarm is in it. */
+export interface Puddle { x: number; d: number; rx: number; ry: number; seed: number; hit?: boolean }
+/** Desk fan at the edge: between d0 and d1 its wind pushes the swarm towards the other side. */
+export interface Fan { side: -1 | 1; d0: number; d1: number; hit?: boolean }
 export interface Stomp { x: number; d: number; trigger: number; state: 'wait' | 'warn' | 'down' | 'up' | 'done'; timer: number }
 
 export interface Level {
@@ -57,6 +61,8 @@ export interface Level {
   jars: Jar[];
   boosts: Boost[];
   bugs: GoldBug[];
+  puddles: Puddle[];
+  fans: Fan[];
 }
 
 export const BOOST_W = 76;
@@ -98,11 +104,11 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
   const lv: Level = {
     num,
     length,
-    themeIdx: themeOverride ?? (num - 1) % THEMES.length,
+    themeIdx: themeOverride ?? levelTheme(num),
     boss: BOSSES[(num - 1) % BOSSES.length].kind,
     bossHP: 0,
     speed: 150 + Math.min(num, 25) * 3,
-    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [], jars: [], boosts: [], bugs: [],
+    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [], jars: [], boosts: [], bugs: [], puddles: [], fans: [],
   };
   let est = 8 + Math.min(num, 30) * 1.1;
   let d = 380;
@@ -132,7 +138,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     // [type, weight, min level]
     ['crumbs', 3, 1], ['gate', 4, 1], ['obstacle', 2, 1], ['squad', 2, 2],
     ['food', 1.2, 1], ['stomp', 1.2, 3], ['pea', 1, 2], ['jar', 1, 2], ['boost', 0.9, 3],
-    ['bug', 0.8, 1],
+    ['bug', 0.8, 1], ['puddle', 1, 12], ['fan', 1, 16],
   ];
 
   while (d < length - 450) {
@@ -253,6 +259,24 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         est += 22; // the sweets it drops during the chase add up
         break;
       }
+      case 'puddle': {
+        // a big slick right before some tacks: line up early, you can't swerve on it
+        const px = range(r, -60, 60);
+        lv.puddles.push({ x: px, d: d + 110, rx: 120, ry: 75, seed: seedN++ });
+        crumbLine(px - 40, px + 40, d + 50, irange(r, 5, 7), 'line');
+        for (let i = 0; i < 2; i++) lv.obstacles.push(makeObstacle(r, 'tack', range(r, -H + 40, H - 40), d + 230 + i * 50, seedN++));
+        est *= 0.92;
+        break;
+      }
+      case 'fan': {
+        // wind blows the swarm across; the hazards sit downwind, the crumbs upwind
+        const side: -1 | 1 = r() < 0.5 ? -1 : 1;
+        lv.fans.push({ side, d0: d + 20, d1: d + 300 });
+        crumbLine(side * 130, side * 120, d + 40, irange(r, 8, 11), 'line');
+        for (let i = 0; i < 2; i++) lv.obstacles.push(makeObstacle(r, pick(r, ['button', 'eraser', 'peel'] as const), -side * range(r, 70, 150), d + 110 + i * 110, seedN++));
+        est *= 0.92;
+        break;
+      }
       case 'stomp': {
         lv.stomps.push({ x: 0, d: d + 160, trigger: d + 160, state: 'wait', timer: 0 });
         crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d, irange(r, 8, 12), 'zig');
@@ -284,9 +308,11 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
  * fighting power of a player who keeps upgrading.
  */
 export const isHardLevel = (num: number) => num % 5 === 0;
+/** Every 10th level closes a chapter with a crowned boss. */
+export const isFinale = (num: number) => num % 10 === 0;
 export function bossRatio(num: number) {
-  const q = num <= 3 ? [0, 0.3, 0.45, 0.55][num] : Math.min(0.95, 0.6 + (num - 4) * 0.02);
-  return q * 1.8 * (isHardLevel(num) ? 1.12 : 1) * (1 + Math.min(num, 30) * 0.05);
+  const q = num <= 3 ? [0, 0.3, 0.45, 0.55][num] : Math.min(0.88, 0.6 + (num - 4) * 0.02);
+  return q * 1.8 * (isFinale(num) ? 1.2 : isHardLevel(num) ? 1.12 : 1) * (1 + Math.min(num, 30) * 0.05);
 }
 
 function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: boolean, noMystery = false): [GateOp, GateOp] {

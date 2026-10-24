@@ -1,0 +1,16 @@
+{
+  "name": "Kiến Ơi Kiến Ầm! · Ant Rumble!",
+  "short_name": "Kiến Ầm",
+  "description": "A cute, chaotic ant swarm game.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#ffe9b8",
+  "theme_color": "#ffe9b8",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -189,3 +189,39 @@ html, body {
   .btn.big { font-size: 26px; padding: 6px 26px; }
   .list { margin: 6px 0 8px; gap: 8px; }
 }
+
+/* ---------- chapters, map, trophies, skins, stats */
+.btn.mint { background: var(--mint); }
+.btn.sun { background: var(--sun); }
+.chapter-bar { background: rgba(255,255,255,.85); border: 3px solid var(--ink); border-radius: 16px; padding: 4px 12px 7px; margin-top: -4px; text-align: center; }
+.ch-name { font-weight: 800; font-size: 14px; }
+.ch-pips { display: flex; gap: 4px; justify-content: center; margin-top: 3px; }
+.ch-pip { width: 18px; height: 9px; border-radius: 5px; border: 2px solid var(--ink); background: #fff; }
+.ch-pip.on { background: var(--mint); }
+.ch-pip.cur { background: var(--sun); animation: breathe 1.2s ease-in-out infinite; }
+.ch-pip.boss { width: 24px; border-color: #c99410; }
+.chapter-done { font-weight: 800; font-size: 18px; background: var(--sun); border: 3px solid var(--ink); border-radius: 14px; padding: 4px 10px; margin: 6px 0; animation: breathe 1.2s ease-in-out infinite; }
+.map { max-height: 46vh; overflow-y: auto; margin: 8px 0 12px; padding: 0 2px; }
+.ch-title { font-weight: 800; font-size: 15px; margin: 10px 0 6px; }
+.lv-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.lv {
+  font: inherit; background: #fff; border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink);
+  padding: 3px 0 2px; display: flex; flex-direction: column; align-items: center; cursor: pointer; color: var(--ink);
+}
+.lv b { font-size: 18px; line-height: 1.1; }
+.lv i { font-style: normal; font-size: 11px; color: #e0a526; letter-spacing: -1px; min-height: 14px; }
+.lv.hard { background: #ffe3ea; }
+.lv.fin { background: #fff2c4; }
+.lv.cur { background: var(--mint); animation: breathe 1.2s ease-in-out infinite; }
+.lv.locked { opacity: .45; cursor: default; box-shadow: none; }
+.lv:active:not(.locked) { transform: translateY(3px); box-shadow: 0 0 0 var(--ink); }
+.skins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 14px; }
+.skin {
+  font: inherit; font-size: 11px; font-weight: 700; background: #fff; border: 3px solid var(--ink); border-radius: 14px;
+  padding: 4px 2px; display: flex; flex-direction: column; align-items: center; cursor: pointer; color: var(--ink);
+}
+.skin canvas { width: 48px; height: 48px; }
+.skin.on { background: #e7fbe0; box-shadow: 0 0 0 3px var(--mint); }
+.skin.locked canvas { filter: grayscale(1) brightness(1.6); opacity: .5; }
+.menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: min(340px, 100%); }
+.btn.tile { min-width: 0; font-size: 18px; padding: 8px 6px; position: relative; }

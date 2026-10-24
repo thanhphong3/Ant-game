@@ -104,7 +104,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     speed: 150 + Math.min(num, 25) * 3,
     crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [], jars: [], boosts: [], bugs: [],
   };
-  let est = 10 + Math.min(num, 40) * 0.7;
+  let est = 8 + Math.min(num, 30) * 1.1;
   let d = 380;
   let lastType = '';
   let seedN = 1;
@@ -124,7 +124,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
       const kind: CrumbKind = roll < 0.06 ? 'candy' : roll < 0.25 ? 'sugar' : 'bread';
       const value = kind === 'candy' ? 5 : kind === 'sugar' ? 2 : 1;
       lv.crumbs.push({ kind, x: clampX(x, 12), d: d0 + i * 22, value, taken: false, seed: seedN++ });
-      est += value * 0.75;
+      est += value * 1.4; // fever doubles them and magnets pull in strays
     }
   };
 
@@ -153,11 +153,13 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
       }
       case 'gate': {
         const wantSlot = num >= 3 && d >= 900 && (feature === 'slot' || r() < 0.25);
-        const g = makeGate(r, num, est, d < 900, mysteryLeft > 0 && !wantSlot);
+        const g = makeGate(r, num, est, d < 900, mysteryLeft > 0 && !wantSlot, wantSlot);
         if (g[0].op === '?' || g[1].op === '?') mysteryLeft--;
         const gate: Gate = { d: d + 120, left: g[0], right: g[1], used: 0, chosen: 0 };
-        let best = Math.max(applyGate(est, g[0]), applyGate(est, g[1]));
-        if (wantSlot && g[0].op !== '?' && g[1].op !== '?') {
+        // a mystery gate pays about +40% on average
+        const worth = (op: GateOp) => (op.op === '?' ? est * 1.3 : applyGate(est, op));
+        let best = Math.max(worth(g[0]), worth(g[1]));
+        if (wantSlot) {
           if (feature === 'slot') feature = '';
           // Slot gate: timing the walk-in turns a gamble into skill.
           const side: -1 | 1 = r() < 0.5 ? -1 : 1;
@@ -165,10 +167,12 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
           gate.slot = { side, ops, period: num < 8 ? 0.6 : 0.5 };
           if (side < 0) gate.left = ops[0];
           else gate.right = ops[0];
-          best = Math.max(applyGate(est, side < 0 ? g[1] : g[0]), applyGate(est, ops[2]));
+          // nobody times every reel: count on half the best face, half a blind walk-in
+          const blind = ops.reduce((s, o) => s + applyGate(est, o), 0) / ops.length;
+          best = Math.max(worth(side < 0 ? g[1] : g[0]), (Math.max(...ops.map((o) => applyGate(est, o))) + blind) / 2);
         }
         lv.gates.push(gate);
-        est = Math.max(6, best * 0.85);
+        est = Math.max(6, best * 0.95);
         crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d - 20, irange(r, 3, 5), 'line');
         break;
       }
@@ -232,7 +236,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         lv.jars.push({ x: jx, d: d + 190, n, open: false, anim: 0, seed: seedN++ });
         lv.obstacles.push(makeObstacle(r, pick(r, ['tack', 'button', 'peel'] as const), jx - side * range(r, 0, 40), d + 70, seedN++));
         crumbLine(-side * 100, -side * 60, d, irange(r, 5, 8), 'line');
-        est += n * 0.6;
+        est += n * 0.8;
         break;
       }
       case 'boost': {
@@ -246,7 +250,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
       case 'bug': {
         lv.bugs.push({ x: range(r, -H + 60, H - 60), d: d + 170, state: 'idle', t: 0, vx: 0, drop: 0, juke: 0, seed: seedN++ });
         crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d, irange(r, 4, 6), 'arc');
-        est += 6;
+        est += 22; // the sweets it drops during the chase add up
         break;
       }
       case 'stomp': {
@@ -257,7 +261,8 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
       }
     }
     // Every few segments a power-up bubble floats somewhere on the track.
-    if (d > 1000 && r() < 0.35) {
+    // (none right before the boss: that fight is about the swarm you built)
+    if (d > 1000 && d + segLen < length - 560 && r() < 0.35) {
       const kinds: PowerKind[] = num >= 3 ? ['shield', 'magnet', 'rage', 'giant'] : num >= 2 ? ['shield', 'magnet', 'rage'] : ['magnet', 'shield'];
       lv.powerups.push({ kind: pick(r, kinds), x: range(r, -H + 50, H - 50), d: d + segLen - 40, taken: false, seed: seedN++ });
     }
@@ -267,13 +272,24 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
   if (!lv.powerups.length) {
     lv.powerups.push({ kind: num < 2 ? 'magnet' : pick(r, ['shield', 'magnet', 'rage'] as const), x: range(r, -H + 50, H - 50), d: length * 0.5, taken: false, seed: seedN++ });
   }
-  // Boss is tuned so a decent run wins and a sloppy one doesn't.
-  const ratio = num <= 2 ? 0.55 : Math.min(1.3, 0.75 + num * 0.035);
-  lv.bossHP = Math.max(12, Math.round(est * ratio * range(r, 0.9, 1.1)));
+  lv.bossHP = Math.max(12, Math.round(est * bossRatio(num) * range(r, 0.9, 1.1)));
   return lv;
 }
 
-function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: boolean): [GateOp, GateOp] {
+/**
+ * Boss HP per point of estimated swarm. `q` is the share of a decent run's
+ * punch the boss soaks up: gentle first levels, then a steady climb, with a
+ * tougher boss every 5th level. The estimate trails the real swarm (fever,
+ * magnets, lucky gates), hence the 1.8, and the boss also keeps pace with the
+ * fighting power of a player who keeps upgrading.
+ */
+export const isHardLevel = (num: number) => num % 5 === 0;
+export function bossRatio(num: number) {
+  const q = num <= 3 ? [0, 0.3, 0.45, 0.55][num] : Math.min(0.95, 0.6 + (num - 4) * 0.02);
+  return q * 1.8 * (isHardLevel(num) ? 1.12 : 1) * (1 + Math.min(num, 30) * 0.05);
+}
+
+function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: boolean, noMystery = false): [GateOp, GateOp] {
   const plus = (): GateOp => ({ op: '+', v: irange(r, 4, 8 + Math.round(num * 1.5 + est * 0.25)) });
   // Bad gates hurt but never wipe out an average swarm on their own.
   const minus = (): GateOp => ({ op: '-', v: irange(r, 3, Math.max(4, Math.round(est * 0.55))) });
@@ -286,7 +302,7 @@ function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: 
   const k = r();
   let pair: [GateOp, GateOp];
   if (safe) pair = [good(), good()];
-  else if (num >= 2 && (wantMystery || k < 0.25)) pair = [{ op: '?', v: 0 }, r() < 0.5 ? good() : bad()];
+  else if (num >= 2 && !noMystery && (wantMystery || k < 0.25)) pair = [{ op: '?', v: 0 }, r() < 0.5 ? good() : bad()];
   else if (k < 0.55) pair = [good(), bad()];
   else if (k < 0.9) pair = [good(), good()];
   else pair = [bad(), bad()];

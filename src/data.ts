@@ -21,7 +21,7 @@ export const UPGRADES: UpgradeDef[] = [
   { id: 'honey', icon: '🍯', name: { vi: 'Hũ mật', en: 'Honey jar' }, desc: { vi: '+10% mật nhận được', en: '+10% honey earned' }, max: 15, baseCost: 50 },
 ];
 
-export const upgradeCost = (u: UpgradeDef, lvl: number) => Math.round(u.baseCost * Math.pow(1.38, lvl));
+export const upgradeCost = (u: UpgradeDef, lvl: number) => Math.round(u.baseCost * Math.pow(1.55, lvl));
 
 export type CaptainId = 'basic' | 'hat' | 'ninja' | 'chubby' | 'dj' | 'astro' | 'knight' | 'king';
 

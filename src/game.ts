@@ -7,7 +7,7 @@ import {
 import type { Sound } from './audio';
 import { BOSSES, THEMES, type CaptainId } from './data';
 import { COMBO_WORDS, chatLine, t, tr, type ChatKind } from './i18n';
-import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, revealMystery, slotOp, type GateOp, type Level, type Obstacle, type Squad } from './level';
+import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, isHardLevel, revealMystery, slotOp, type GateOp, type Level, type Obstacle, type Squad } from './level';
 
 export interface RunStats {
   startAnts: number;
@@ -845,8 +845,9 @@ export class Run {
   }
 
   private updateBoss(dt: number) {
-    // Slower than a squad fight so there is time to dodge the boss's slams.
-    const rate = Math.max(8, (this.count + this.bossHP) / 9);
+    // Slower than a squad fight so there is time to dodge the boss's slams
+    // (measured in ants, so a strong swarm doesn't skip the whole dance).
+    const rate = Math.max(8, (this.count + this.bossHP / this.power) / 8);
     this.tickAcc += dt * rate;
     while (this.tickAcc >= 1 && this.bossHP > 0 && this.count > 0) {
       this.tickAcc -= 1;
@@ -907,7 +908,7 @@ export class Run {
       const frac = this.ants.length ? inZone / this.ants.length : 0;
       // A clean dodge (a couple of stragglers is fine) earns a counter-attack.
       if (frac < 0.05 || this.shieldT > 0) {
-        const dmg = Math.max(2, Math.round(this.bossMax * 0.07 * (this.rageT > 0 ? 1.5 : 1)));
+        const dmg = Math.max(2, Math.round(this.bossMax * 0.05 * (this.rageT > 0 ? 1.5 : 1)));
         this.bossHP -= dmg;
         this.tally.counters++;
         this.bossV.hurt = 1;
@@ -916,7 +917,7 @@ export class Run {
         this.sparkle(0, this.bossD - 40, '#ffd166', 20);
         this.chat('good', 0.5);
       } else {
-        const lost = Math.max(1, Math.round(this.count * frac * 0.22 * (1 - this.stats.dodge * 0.5)));
+        const lost = Math.max(1, Math.round(this.count * frac * 0.3 * (1 - this.stats.dodge * 0.5)));
         for (const a of this.ants) if (a.x > x0 && a.x < x1 && Math.random() < 0.5) this.poof(a.x, a.y, SMOKE, 2);
         this.addCount(-lost, this.bossCx, this.bossCy);
         this.float((x0 + x1) / 2, this.bossCy + 40, `${t('ouch')} -${lost}`, '#ff8a80', 24);
@@ -957,9 +958,9 @@ export class Run {
     this.bossSay('bossWin');
     this.chatCD = 0;
     this.chat('win');
-    const bonus = 20 + this.lv.num * 8 + antsLeft;
-    // Stars: how much of an army is still standing compared to the boss it beat.
-    const ratio = antsLeft / Math.max(1, this.bossMax);
+    const bonus = 20 + this.lv.num * 8 + Math.round(antsLeft * 0.5);
+    // Stars: how much punch the army still has left compared to the boss it beat.
+    const ratio = (antsLeft * st.power) / Math.max(1, this.bossMax);
     const stars = ratio >= 0.6 ? 3 : ratio >= 0.25 ? 2 : 1;
     const starBonus = stars * (5 + this.lv.num * 2);
     const base = this.crumbHoney + this.fightHoney + this.foodHoney + this.bugHoney + bonus + starBonus;
@@ -1353,7 +1354,7 @@ export class Run {
     drawAnt(ctx, this.spr, bx + bw * prog, by + 7 * u, Math.PI / 2, 26 * u, Math.floor(this.time * 12));
     text(ctx, '👑', bx + bw + 14 * u, by + 7 * u, 18 * u, '#fff', INK);
     // level label
-    const lbl = !this.lv.daily ? `${t('level')} ${this.lv.num}` : t('daily');
+    const lbl = !this.lv.daily ? `${t('level')} ${this.lv.num}${isHardLevel(this.lv.num) ? ' 💀' : ''}` : t('daily');
     text(ctx, lbl, bx, by + 32 * u, 15 * u, '#fff', INK, 'left');
     // honey
     const honey = Math.round(this.crumbHoney + this.fightHoney + this.foodHoney + this.bugHoney);

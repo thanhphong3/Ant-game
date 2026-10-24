@@ -4,7 +4,7 @@ import { Sound } from './audio';
 import { CAPTAINS, THEMES, UPGRADES, upgradeCost, type CaptainId } from './data';
 import { Run, type RunResult, type RunStats } from './game';
 import { getLang, setLang, t, tr } from './i18n';
-import { generateLevel } from './level';
+import { generateLevel, isHardLevel } from './level';
 import { bonusReady, claimable, makeQuests, questDef, trackQuests } from './quests';
 import { hashString } from './rng';
 import { loadSave, resetSave, todayKey, writeSave } from './save';
@@ -107,6 +107,9 @@ function countUp(el: HTMLElement, from: number, to: number, ms: number) {
   tick();
 }
 
+/** Every 5th level has a tougher boss: flag it so players know to power up first. */
+const levelName = (n: number) => `${t('level')} ${n}${isHardLevel(n) ? ' 💀' : ''}`;
+
 function stats(): RunStats {
   const u = save.upgrades;
   const c = save.captain;
@@ -145,7 +148,7 @@ function menuScreen() {
       h('div', { class: 'subtitle', textContent: other }),
       h('div', { class: 'tagline', textContent: t('tagline') }),
       h('div', { style: 'height:8px' }),
-      btn(`▶ ${t('play')} · ${t('level')} ${save.level}`, 'big', () => startRun(false)),
+      btn(`▶ ${t('play')} · ${levelName(save.level)}`, 'big', () => startRun(false)),
       btn(`📅 ${t('daily')}${best ? `<span class="best">&nbsp;(${t('dailyBest')}: ${fmt(best)})</span>` : ''}`, 'sky', () => startRun(true)),
       h('div', { class: 'row' },
         btn(`🏠 ${t('nest')}`, 'pink', nestScreen),
@@ -157,7 +160,7 @@ function menuScreen() {
         btn('⚙️', 'white icon-btn', settingsScreen),
       ),
     ),
-    h('div', { class: 'version', textContent: 'v1.3' }),
+    h('div', { class: 'version', textContent: 'v1.4' }),
   );
   // Pop the daily gift open by itself, once per visit.
   if (gd && !giftOffered) {
@@ -604,7 +607,7 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number) {
       })
     : '';
   const primary = r.win && !runIsDaily
-    ? btn(`▶ ${t('level')} ${save.level}`, 'big', () => startRun(false))
+    ? btn(`▶ ${levelName(save.level)}`, 'big', () => startRun(false))
     : btn(`↻ ${t('retry')}`, 'big', () => startRun(runIsDaily));
   show(
     pill,

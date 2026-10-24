@@ -22,13 +22,14 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 - 🔥 Ăn liền 10 vụn bánh để vào chế độ **CUỒNG NHIỆT**: kiến vàng óng, mỗi vụn bánh x2 kiến. Combo càng dài càng được hò reo: *Ngon! → Tuyệt cú mèo! → Đỉnh của chóp! → SIÊU KIẾN! → HUYỀN THOẠI!*
 - 👑 Cuối màn: đánh trùm (Nhện, Ếch, Thằn lằn, Bọ Ngựa Võ Sĩ, Ong Chúa, Vua Bọ Hung). Trùm sẽ đập xuống một bên sân — kéo đàn kiến sang phía an toàn để né và **phản đòn**!
 - 💢 Còn nửa máu, trùm **nổi điên**: đánh nhanh hơn, đập cả giữa sân và tung combo hai đòn liên tiếp.
-- ⭐ Thắng màn được chấm 1–3 sao theo số kiến còn lại, sao càng nhiều mật càng nhiều.
+- ⭐ Thắng màn được chấm 1–3 sao theo sức đánh đàn kiến còn lại, sao càng nhiều mật càng nhiều.
+- 💀 Cứ 5 màn lại có một **trùm khó** — nâng cấp tổ kiến trước khi vào nhé! Thua thì trùm màn đó yếu dần đi một chút sau mỗi lần thử.
 - 🍀 Thắng xong còn có thanh **nhân thưởng may mắn**: bấm dừng kim đúng ô ×3 để nhân ba số mật!
 - 🎉 Đàn kiến chạm mốc 25, 50, 100… con sẽ được ăn mừng.
 
 ## Tính năng / Features
 - Màn chơi vô hạn, sinh ngẫu nhiên theo seed, 5 bối cảnh: khăn picnic, bàn bếp, vườn, sàn gỗ, xứ kẹo.
-- 🏠 Tổ kiến: 5 nâng cấp (đàn khởi đầu, sức mạnh, nam châm, giáp lá, hũ mật).
+- 🏠 Tổ kiến: 5 nâng cấp (đàn khởi đầu, sức mạnh, nam châm, giáp lá, hũ mật). Độ khó tăng dần đều theo màn và theo mức nâng cấp, được cân chỉnh bằng bot tự chơi hàng trăm lượt.
 - 🐜 Bộ sưu tập 8 kiến đội trưởng với kỹ năng riêng (Nón Lá, Ninja, Béo, DJ, Phi Hành Gia, Hiệp Sĩ, Vua…).
 - Power-up, cổng bí ẩn, cổng xoay số, hũ giải cứu, đường tăng tốc, chế độ cuồng nhiệt, trùm biết ra đòn (và nổi điên) cùng chấm sao. Rung nhẹ trên điện thoại khi trúng đòn.
 - 📅 Thử thách ngày: cùng một màn cho mọi người mỗi ngày, lưu kỷ lục.

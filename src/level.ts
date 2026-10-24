@@ -13,6 +13,8 @@ export interface Gate {
 export interface Collider { dx: number; dy: number; r: number }
 export interface Obstacle {
   kind: ObstacleKind; x: number; d: number; seed: number; flip: number; colliders: Collider[];
+  /** Flattened by giant ants: harmless and gone. */
+  smashed?: boolean;
   move?: { amp: number; speed: number; phase: number };
 }
 export interface Squad { x: number; d: number; hp: number; max: number; dead: boolean; reward: number }
@@ -20,12 +22,21 @@ export interface Food {
   kind: FoodKind; x: number; d: number; r: number; need: number; carriers: number; value: number;
   state: 'idle' | 'carried' | 'nope'; anim: number;
 }
-export type PowerKind = 'shield' | 'magnet' | 'rage';
+export type PowerKind = 'shield' | 'magnet' | 'rage' | 'giant';
 export interface PowerUp { kind: PowerKind; x: number; d: number; taken: boolean; seed: number }
 /** A glass jar of trapped ants: touch it to free them. */
 export interface Jar { x: number; d: number; n: number; open: boolean; anim: number; seed: number }
 /** Arrow pad on the floor: running over it starts a short invincible dash. */
 export interface Boost { x: number; d: number; used: boolean }
+/** Golden ladybug: bolts away once the swarm gets close and drops sweets while it runs. Catch it for a jackpot! */
+export interface GoldBug {
+  x: number; d: number; state: 'idle' | 'run' | 'caught' | 'gone'; t: number; vx: number;
+  /** seconds until the next sweet falls out of its pockets */
+  drop: number;
+  /** while > 0 it is darting across the swarm in direction `vx` */
+  juke: number;
+  seed: number;
+}
 export interface Stomp { x: number; d: number; trigger: number; state: 'wait' | 'warn' | 'down' | 'up' | 'done'; timer: number }
 
 export interface Level {
@@ -45,6 +56,7 @@ export interface Level {
   powerups: PowerUp[];
   jars: Jar[];
   boosts: Boost[];
+  bugs: GoldBug[];
 }
 
 export const BOOST_W = 76;
@@ -90,13 +102,15 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     boss: BOSSES[(num - 1) % BOSSES.length].kind,
     bossHP: 0,
     speed: 150 + Math.min(num, 25) * 3,
-    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [], jars: [], boosts: [],
+    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [], jars: [], boosts: [], bugs: [],
   };
   let est = 10 + Math.min(num, 40) * 0.7;
   let d = 380;
   let lastType = '';
   let seedN = 1;
   let mysteryLeft = num >= 2 ? 1 : 0; // aim for one ❓ gate per level from level 2
+  let bugLeft = 1; // one golden ladybug to chase per level
+  let mushroomLeft = num >= 3 ? 1 : 0; // a 🍄 right before some hazards, so giants get to smash things
   // Every level from 2 on also features one of the newer set pieces, in rotation.
   let feature: '' | 'slot' | 'jar' | 'boost' = num < 2 ? '' : num === 2 ? 'jar' : (['slot', 'jar', 'boost'] as const)[num % 3];
 
@@ -118,14 +132,18 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     // [type, weight, min level]
     ['crumbs', 3, 1], ['gate', 4, 1], ['obstacle', 2, 1], ['squad', 2, 2],
     ['food', 1.2, 1], ['stomp', 1.2, 3], ['pea', 1, 2], ['jar', 1, 2], ['boost', 0.9, 3],
+    ['bug', 0.8, 1],
   ];
 
   while (d < length - 450) {
     let type = weightedPick(r, types.filter((t) => num >= t[2]));
     if (type === lastType && type !== 'crumbs') type = 'crumbs';
+    if (type === 'bug' && !bugLeft) type = 'crumbs';
+    if (bugLeft && d >= length * 0.45) type = 'bug'; // make sure every level gets its chase
     if (feature && d >= 1000) type = feature === 'slot' ? 'gate' : feature;
     if (d < 900) type = d < 600 ? 'crumbs' : 'gate'; // gentle opening: always grow first
     if (type === feature) feature = '';
+    if (type === 'bug') bugLeft = 0;
     lastType = type;
     switch (type) {
       case 'crumbs': {
@@ -156,6 +174,10 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
       }
       case 'obstacle': {
         const n = irange(r, 1, num < 4 ? 2 : 3);
+        if (mushroomLeft && r() < 0.5) {
+          mushroomLeft = 0;
+          lv.powerups.push({ kind: 'giant', x: range(r, -H + 50, H - 50), d: d - 10, taken: false, seed: seedN++ });
+        }
         for (let i = 0; i < n; i++) {
           lv.obstacles.push(makeObstacle(r, pick(r, ['spoon', 'eraser', 'peel', 'tack', 'button'] as const), range(r, -H + 50, H - 50), d + 60 + i * 95, seedN++));
         }
@@ -221,6 +243,12 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         est += 6;
         break;
       }
+      case 'bug': {
+        lv.bugs.push({ x: range(r, -H + 60, H - 60), d: d + 170, state: 'idle', t: 0, vx: 0, drop: 0, juke: 0, seed: seedN++ });
+        crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d, irange(r, 4, 6), 'arc');
+        est += 6;
+        break;
+      }
       case 'stomp': {
         lv.stomps.push({ x: 0, d: d + 160, trigger: d + 160, state: 'wait', timer: 0 });
         crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d, irange(r, 8, 12), 'zig');
@@ -230,7 +258,7 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     }
     // Every few segments a power-up bubble floats somewhere on the track.
     if (d > 1000 && r() < 0.35) {
-      const kinds: PowerKind[] = num >= 2 ? ['shield', 'magnet', 'rage'] : ['magnet', 'shield'];
+      const kinds: PowerKind[] = num >= 3 ? ['shield', 'magnet', 'rage', 'giant'] : num >= 2 ? ['shield', 'magnet', 'rage'] : ['magnet', 'shield'];
       lv.powerups.push({ kind: pick(r, kinds), x: range(r, -H + 50, H - 50), d: d + segLen - 40, taken: false, seed: seedN++ });
     }
     d += segLen + range(r, -30, 40);

@@ -14,6 +14,8 @@ export interface SaveData {
   daily: Record<string, number>;
   fails: number; // failed attempts on the current level (makes the boss a bit weaker)
   quests: QuestBook | null;
+  freeRevive: string; // day the free revive was last used
+  gift: { day: string; streak: number }; // last daily gift claimed, and how many days in a row
 }
 
 const KEY = 'ant-rumble-save-v1';
@@ -30,6 +32,8 @@ const fresh = (): SaveData => ({
   daily: {},
   fails: 0,
   quests: null,
+  freeRevive: '',
+  gift: { day: '', streak: 0 },
 });
 
 export function loadSave(): SaveData {
@@ -59,7 +63,9 @@ export function resetSave(): SaveData {
   return s;
 }
 
-export const todayKey = () => {
+/** Local calendar day, `offset` days from today. */
+export const todayKey = (offset = 0) => {
   const d = new Date();
+  d.setDate(d.getDate() + offset);
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 };

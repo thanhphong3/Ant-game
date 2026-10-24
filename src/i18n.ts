@@ -73,6 +73,23 @@ const dict = {
   claim: { vi: 'Nhận', en: 'Claim' },
   questDone: { vi: 'Xong nhiệm vụ! Vào 📜 để nhận thưởng', en: 'Quest complete! Claim it in 📜' },
   allQuests: { vi: 'Xong cả 3: thưởng thêm', en: 'All 3 done: extra' },
+  giant: { vi: 'KIẾN KHỔNG LỒ! Đạp bẹp hết!', en: 'GIANT ANTS! Stomp everything!' },
+  smash: { vi: 'BẸP!', en: 'SQUASH!' },
+  bugSpot: { vi: '🐞 Bọ rùa vàng! Đuổi theo!', en: '🐞 Golden ladybug! Catch it!' },
+  bugCaught: { vi: 'BẮT ĐƯỢC! +{0} 🍯', en: 'GOTCHA! +{0} 🍯' },
+  bugGone: { vi: 'Bay mất rồi...', en: 'It got away...' },
+  goldBug: { vi: 'Bọ rùa vàng', en: 'Golden ladybug' },
+  revive: { vi: 'Cứu đàn kiến?', en: 'Save the swarm?' },
+  reviveSub: { vi: 'Hồi sinh {0} kiến + khiên bong bóng!', en: 'Bring back {0} ants + a bubble shield!' },
+  reviveFree: { vi: 'Hồi sinh miễn phí', en: 'Free revive' },
+  reviveBtn: { vi: 'Hồi sinh', en: 'Revive' },
+  revived: { vi: 'HỒI SINH!', en: 'BACK IN ACTION!' },
+  skip: { vi: 'Thôi, bỏ qua', en: 'No thanks' },
+  gift: { vi: 'Quà mỗi ngày', en: 'Daily gift' },
+  giftSub: { vi: 'Ghé mỗi ngày, quà càng to! Lỡ một ngày là về lại ngày 1.', en: 'Come back daily for bigger gifts! Miss a day and it restarts.' },
+  day: { vi: 'Ngày {0}', en: 'Day {0}' },
+  open: { vi: 'Mở quà!', en: 'Open!' },
+  giftTomorrow: { vi: 'Mai quay lại nhé!', en: 'See you tomorrow!' },
 } as const;
 
 export type Key = keyof typeof dict;
@@ -92,3 +109,34 @@ export function t(key: Key, ...args: (string | number)[]): string {
 
 /** Pick from an inline {vi, en} pair. */
 export const tr = (o: { vi: string; en: string }) => o[lang];
+
+/** Things the ants (and the boss) shout, picked at random. */
+export const CHAT = {
+  munch: { vi: ['Măm măm!', 'Ngon quá!', 'Nữa nữa!', 'Hí hí!', 'Thơm ghê!'], en: ['Nom nom!', 'Yummy!', 'More!', 'Hehe!', 'Tasty!'] },
+  good: { vi: ['Yeah!', 'Đông vui!', 'Tuyệt!', 'Wiii!', 'Anh em ơi!'], en: ['Yay!', 'Party!', 'Woohoo!', 'Wheee!', 'Buddies!'] },
+  bad: { vi: ['Huhu...', 'Ơ kìa!', 'Toang!', 'Mẹ ơi!', 'Sao lại thế!'], en: ['Nooo!', 'Uh-oh!', 'Oops!', 'Mommy!', 'Why?!'] },
+  hurt: { vi: ['Ui da!', 'Á á!', 'Đau quá!', 'Cứu!'], en: ['Ouch!', 'Eek!', 'Yikes!', 'Help!'] },
+  boss: { vi: ['Xung phong!', 'Đông là thắng!', 'Cắn nó!', 'Lên nào!'], en: ['Charge!', 'Get him!', 'Bite!', 'Go go go!'] },
+  win: { vi: ['Hoan hô!', 'Kiến số 1!', 'Về ăn tiệc!', 'Đỉnh quá!'], en: ['Hooray!', 'Ants rule!', 'Party time!', 'We did it!'] },
+  rescue: { vi: ['Cảm ơn!', 'Tự do!', 'Ra rồi!'], en: ['Thanks!', 'Free!', "I'm out!"] },
+  giant: { vi: ['Ta là khổng lồ!', 'Đạp bẹp!', 'Rầm rầm!'], en: ['I am HUGE!', 'Stomp stomp!', 'Boom boom!'] },
+  bug: { vi: ['Bắt lấy!', 'Lấp lánh quá!', 'Đứng lại!'], en: ['Catch it!', 'So shiny!', 'Come back!'] },
+  dash: { vi: ['Wiiiii!', 'Nhanh như gió!'], en: ['Wheeee!', 'Zoom zoom!'] },
+  taunt: { vi: ['Lũ kiến tí hon!', 'Ta đói rồi!', 'Lại đây nào!', 'Hừ hừ!'], en: ['Puny ants!', "I'm hungry!", 'Come at me!', 'Hmph!'] },
+  rage: { vi: ['GRỪ! Tức quá!', 'Hết kiên nhẫn!', 'Chọc giận ta à?!'], en: ['GRR! So angry!', "That's it!", 'You made me MAD!'] },
+  bossWin: { vi: ['Ta... thua rồi...', 'Hu hu hu!'], en: ['I... lost...', 'Waaah!'] },
+} as const;
+export type ChatKind = keyof typeof CHAT;
+export const chatLine = (k: ChatKind) => {
+  const arr = CHAT[k][lang];
+  return arr[Math.floor(Math.random() * arr.length)];
+};
+
+/** Hype words for long crumb combos. */
+export const COMBO_WORDS: Record<number, { vi: string; en: string }> = {
+  5: { vi: 'Ngon!', en: 'Nice!' },
+  15: { vi: 'Tuyệt cú mèo!', en: 'Awesome!' },
+  25: { vi: 'Đỉnh của chóp!', en: 'Unstoppable!' },
+  35: { vi: 'SIÊU KIẾN!', en: 'SUPER ANTS!' },
+  45: { vi: 'HUYỀN THOẠI!', en: 'LEGENDARY!' },
+};

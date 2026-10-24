@@ -5,7 +5,7 @@ import { hashString, mulberry32 } from './rng';
 
 export type QuestId =
   | 'crumbs' | 'wins' | 'stars3' | 'mystery' | 'squads' | 'foods'
-  | 'fever' | 'counter' | 'jars' | 'swarm' | 'power' | 'boost';
+  | 'fever' | 'counter' | 'jars' | 'swarm' | 'power' | 'boost' | 'bugs' | 'smash';
 
 interface QuestDef {
   id: QuestId;
@@ -30,6 +30,8 @@ const QUESTS: QuestDef[] = [
   { id: 'swarm', icon: '🐜', text: { vi: 'Có {0} kiến cùng lúc', en: 'Have {0} ants at once' }, goals: [50, 80, 120], minLevel: 1, progress: (r) => r.tally.maxAnts, best: true },
   { id: 'power', icon: '✨', text: { vi: 'Nhặt {0} power-up', en: 'Grab {0} power-ups' }, goals: [2, 4, 6], minLevel: 1, progress: (r) => r.tally.powerups },
   { id: 'boost', icon: '⚡', text: { vi: 'Tăng tốc {0} lần', en: 'Dash {0} times' }, goals: [1, 2, 4], minLevel: 3, progress: (r) => r.tally.boosts },
+  { id: 'bugs', icon: '🐞', text: { vi: 'Bắt {0} bọ rùa vàng', en: 'Catch {0} golden ladybugs' }, goals: [1, 2, 3], minLevel: 1, progress: (r) => r.tally.bugs },
+  { id: 'smash', icon: '🍄', text: { vi: 'Đạp bẹp {0} chướng ngại', en: 'Squash {0} obstacles' }, goals: [2, 4, 6], minLevel: 4, progress: (r) => r.tally.smashed },
 ];
 
 export interface QuestState { id: QuestId; goal: number; prog: number; reward: number; claimed: boolean }

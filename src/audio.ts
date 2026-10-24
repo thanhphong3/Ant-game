@@ -191,6 +191,42 @@ export class Sound {
   tick() {
     this.tone(1800, 0.025, 'square', 0.03);
   }
+  private lastChirp = 0;
+  /** Tiny "voice" blip when an ant talks. */
+  chirp() {
+    if (!this.ctx || this.ctx.currentTime - this.lastChirp < 0.15) return;
+    this.lastChirp = this.ctx.currentTime;
+    const f = 900 + Math.random() * 500;
+    this.tone(f, 0.05, 'triangle', 0.05, f * 1.4);
+    this.tone(f * 1.2, 0.06, 'triangle', 0.045, f * 0.9, 0.06);
+  }
+  bugSpot() {
+    [0, 7, 0, 7].forEach((n, i) => this.tone(NOTE(84 + n), 0.07, 'square', 0.05, undefined, i * 0.07));
+  }
+  jackpot() {
+    [0, 4, 7, 12, 16, 19, 24, 28].forEach((n, i) => this.tone(NOTE(72 + n), 0.1, 'square', 0.06, undefined, i * 0.04));
+    for (let i = 0; i < 8; i++) this.tone(2000 + Math.random() * 1500, 0.05, 'sine', 0.04, undefined, 0.3 + i * 0.05);
+  }
+  giant() {
+    this.tone(400, 0.5, 'square', 0.08, 90);
+    [0, 5, 12].forEach((n, i) => this.tone(NOTE(48 + n), 0.2, 'triangle', 0.15, undefined, 0.15 + i * 0.1));
+  }
+  private lastSmash = 0;
+  smash() {
+    if (!this.ctx || this.ctx.currentTime - this.lastSmash < 0.08) return;
+    this.lastSmash = this.ctx.currentTime;
+    this.tone(160, 0.2, 'sine', 0.4, 40);
+    this.noise(0.18, 0.25, 900, 'lowpass');
+    this.tone(700, 0.12, 'square', 0.05, 1400, 0.05);
+  }
+  revive() {
+    [0, 4, 7, 11, 12, 16, 19, 24].forEach((n, i) => this.tone(NOTE(64 + n), 0.16, 'triangle', 0.08, undefined, i * 0.05));
+    this.tone(NOTE(88), 0.5, 'sine', 0.05, NOTE(100), 0.4);
+  }
+  gift() {
+    this.noise(0.25, 0.15, 3000, 'highpass');
+    [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => this.tone(NOTE(72 + n), 0.14, 'square', 0.06, undefined, 0.1 + i * 0.06));
+  }
 
   setMusic(mode: Mode) {
     if (mode === this.mode) return;

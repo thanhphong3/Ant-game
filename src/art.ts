@@ -604,9 +604,135 @@ export function drawBoostPad(ctx: C, x: number, y: number, w: number, l: number,
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- golden ladybug
+/**
+ * The runaway golden ladybug, head pointing up the track. `run` makes its
+ * legs scurry and wings buzz; `fly` (0..1) lifts it off when it escapes.
+ */
+export function drawLadybug(ctx: C, x: number, y: number, t: number, seed: number, run: boolean, fly: number) {
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(x + 2, y + 16, 15 * (1 - fly * 0.6), 5 * (1 - fly * 0.6), 0, 0, TAU);
+  ctx.fill();
+  ctx.save();
+  ctx.translate(x, y - fly * 140 - (run ? Math.abs(Math.sin(t * 20)) * 2 : Math.sin(t * 3 + seed) * 1.5));
+  ctx.rotate(run ? Math.sin(t * 14) * 0.18 : 0);
+  // golden glow
+  ctx.globalAlpha = 0.28 + Math.sin(t * 6 + seed) * 0.12;
+  ctx.beginPath();
+  ctx.arc(0, 0, 30, 0, TAU);
+  ctx.fillStyle = '#ffe066';
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  // legs
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  for (const sd of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      const w = run ? Math.sin(t * 30 + i * 2 + sd) * 4 : 0;
+      ctx.beginPath();
+      ctx.moveTo(sd * 10, -5 + i * 7);
+      ctx.lineTo(sd * 18, -8 + i * 8 + w);
+      ctx.stroke();
+    }
+  }
+  // buzzing wings
+  if (run || fly > 0) {
+    ctx.globalAlpha = 0.55;
+    for (const sd of [-1, 1]) {
+      ctx.save();
+      ctx.rotate(sd * (0.5 + Math.sin(t * 60) * 0.35));
+      ctx.beginPath();
+      ctx.ellipse(sd * 12, 4, 9, 16, 0, 0, TAU);
+      paint(ctx, '#ffffff', 1.4);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // head + antennae
+  ctx.beginPath();
+  ctx.moveTo(-3, -18);
+  ctx.quadraticCurveTo(-6, -27, -10, -27);
+  ctx.moveTo(3, -18);
+  ctx.quadraticCurveTo(6, -27, 10, -27);
+  paint(ctx, null, 1.8);
+  for (const sd of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(sd * 10, -27, 2.4, 0, TAU);
+    paint(ctx, '#ffd166', 1.4);
+  }
+  ctx.beginPath();
+  ctx.arc(0, -13, 8.5, 0, TAU);
+  paint(ctx, '#3a2d45', 2);
+  eye(ctx, -3.6, -15, 3, 0, run ? -0.7 : 0.3, 1);
+  eye(ctx, 3.6, -15, 3, 0, run ? -0.7 : 0.3, 1);
+  // shell
+  blob(ctx, 0, 3, 15, 16, seed, 0.04);
+  paint(ctx, '#ffc93c', 2.4);
+  ctx.beginPath();
+  ctx.moveTo(0, -12);
+  ctx.lineTo(0, 18);
+  paint(ctx, null, 2);
+  ctx.fillStyle = INK;
+  for (const [sx, sy, r] of [[-7, -2, 3.3], [7, -2, 3.3], [-6, 10, 2.7], [6, 10, 2.7]]) {
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, TAU);
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.arc(-6, -4, 7, 3.5, 4.4);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  // twinkle
+  const tw = (t * 1.3 + seed * 0.37) % 1;
+  if (tw < 0.5) {
+    const s = Math.sin((tw / 0.5) * Math.PI) * 6;
+    ctx.translate(13, -14);
+    ctx.rotate(t * 3);
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const r = i % 2 ? s * 0.35 : s;
+      ctx.lineTo(Math.cos((i / 8) * TAU) * r, Math.sin((i / 8) * TAU) * r);
+    }
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Comic speech bubble with its tail pointing down at (x, y). */
+export function drawSpeech(ctx: C, s: string, x: number, y: number, size: number, k: number, fill = '#fff') {
+  ctx.font = `800 ${size}px "Baloo 2", "Trebuchet MS", sans-serif`;
+  const w = ctx.measureText(s).width + size * 1.1;
+  const h = size * 1.55;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(k, k);
+  ctx.beginPath();
+  ctx.moveTo(-5, -h * 0.35 - 6);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(6, -h * 0.35 - 6);
+  paint(ctx, fill, 2);
+  rrect(ctx, -w / 2, -h - 8, w, h, h * 0.45, x, 0.5);
+  paint(ctx, fill, 2);
+  ctx.beginPath();
+  ctx.moveTo(-4.5, -9);
+  ctx.lineTo(5.5, -9);
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = fill;
+  ctx.stroke();
+  ctx.fillStyle = INK;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(s, 0, -h / 2 - 7);
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------- power-ups
-const POWER_ICON = { shield: '🛡️', magnet: '🧲', rage: '🔥' } as const;
-const POWER_COL = { shield: '#7ed6ff', magnet: '#ff7eb6', rage: '#ffb347' } as const;
+const POWER_ICON = { shield: '🛡️', magnet: '🧲', rage: '🔥', giant: '🍄' } as const;
+const POWER_COL = { shield: '#7ed6ff', magnet: '#ff7eb6', rage: '#ffb347', giant: '#b5f27a' } as const;
 
 export function drawPowerUp(ctx: C, kind: keyof typeof POWER_ICON, x: number, y: number, seed: number, t: number) {
   const bob = Math.sin(t * 3 + seed) * 4;

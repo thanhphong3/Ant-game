@@ -34,6 +34,7 @@ resize();
 
 let run: Run | null = null;
 let runIsDaily = false;
+let giftOffered = false;
 
 // ------------------------------------------------------------------ helpers
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...kids: (Node | string)[]) {
@@ -85,6 +86,16 @@ function quests() {
   return save.quests;
 }
 
+// 7-day login streak; day 7 is the big one.
+const GIFTS = [30, 50, 80, 120, 160, 220, 400];
+const giftAmount = (day: number) => Math.round((GIFTS[day - 1] * (1 + Math.min(save.level, 60) * 0.05)) / 5) * 5;
+/** The streak day today's gift would be (1..7), or 0 when it was already opened today. */
+function giftDay() {
+  const g = save.gift;
+  if (g.day === todayKey()) return 0;
+  return g.day === todayKey(-1) ? (g.streak % 7) + 1 : 1;
+}
+
 /** Ease a number shown in `el` from `from` to `to`. */
 function countUp(el: HTMLElement, from: number, to: number, ms: number) {
   const t0 = performance.now();
@@ -126,6 +137,7 @@ function menuScreen() {
   });
   const best = save.daily[todayKey()];
   const nq = claimable(quests());
+  const gd = giftDay();
   show(
     honeyPill(),
     h('div', { class: 'screen' },
@@ -141,10 +153,57 @@ function menuScreen() {
       ),
       h('div', { class: 'row' },
         btn(`📜 ${t('quests')}${nq ? `<span class="dot">${nq}</span>` : ''}`, 'quest-btn', questScreen),
+        btn(`🎁${gd ? '<span class="dot">!</span>' : ''}`, `white icon-btn quest-btn${gd ? ' gift-ready' : ''}`, giftScreen),
         btn('⚙️', 'white icon-btn', settingsScreen),
       ),
     ),
-    h('div', { class: 'version', textContent: 'v1.2' }),
+    h('div', { class: 'version', textContent: 'v1.3' }),
+  );
+  // Pop the daily gift open by itself, once per visit.
+  if (gd && !giftOffered) {
+    giftOffered = true;
+    giftScreen();
+  }
+}
+
+function giftScreen() {
+  giftOffered = true;
+  const today = giftDay();
+  const cur = today || save.gift.streak;
+  const grid = h('div', { class: 'gifts' });
+  for (let d = 1; d <= 7; d++) {
+    const ready = d === cur && today > 0;
+    const done = d < cur || (d === cur && !today);
+    grid.append(
+      h('div', { class: `gift${ready ? ' ready' : done ? ' done' : ''}${d === 7 ? ' big' : ''}` },
+        h('div', { class: 'gday', textContent: t('day', d) }),
+        h('div', { class: 'gbox', textContent: done ? '✔' : d === 7 ? '👑' : '🎁' }),
+        h('div', { class: 'gamt', textContent: `🍯${fmt(giftAmount(d))}` }),
+      ),
+    );
+  }
+  const action = today
+    ? btn(`🎁 ${t('open')}`, 'big', () => {
+        const amount = giftAmount(today);
+        save.honey += amount;
+        save.gift = { day: todayKey(), streak: today };
+        persist();
+        sound.gift();
+        toast(`🎉 +${fmt(amount)} 🍯`, 1800);
+        giftScreen();
+        ui.querySelector('.gift.done:nth-child(' + today + ')')?.classList.add('just');
+      })
+    : h('div', { class: 'tagline', textContent: `🌙 ${t('giftTomorrow')}` });
+  show(
+    honeyPill(),
+    h('div', { class: 'screen' },
+      h('div', { class: 'panel center' },
+        h('h2', { textContent: `🎁 ${t('gift')}` }),
+        h('div', { class: 'tagline', textContent: t('giftSub') }),
+        grid,
+        h('div', { class: 'list' }, action, btn(`↩ ${t('back')}`, 'white small', menuScreen)),
+      ),
+    ),
   );
 }
 
@@ -380,7 +439,68 @@ function pauseScreen() {
   );
 }
 
+const reviveCost = () => 25 + save.level * 8;
+
 function onRunEnd(r: RunResult) {
+  // One second chance per run (not in the daily challenge): free once a day, then it costs honey.
+  if (!r.win && run && !runIsDaily && run.revives === 0) {
+    const free = save.freeRevive !== todayKey();
+    const cost = reviveCost();
+    if (free || save.honey >= cost) {
+      reviveScreen(run, r, free, cost);
+      return;
+    }
+  }
+  finishRun(r);
+}
+
+function reviveScreen(cur: Run, r: RunResult, free: boolean, cost: number) {
+  let left = 5;
+  let done = false;
+  const num = h('div', { class: 'revive-count', textContent: String(left) });
+  const close = () => {
+    done = true;
+    clearInterval(timer);
+  };
+  const giveUp = () => {
+    if (done) return;
+    close();
+    finishRun(r);
+  };
+  const timer = setInterval(() => {
+    if (done) return;
+    left--;
+    num.textContent = String(left);
+    num.classList.remove('tick');
+    void num.offsetWidth; // restart the pulse animation
+    num.classList.add('tick');
+    sound.tick();
+    if (left <= 0) giveUp();
+  }, 1000);
+  const accept = btn(free ? `💖 ${t('reviveFree')}` : `💖 ${t('reviveBtn')} · 🍯${fmt(cost)}`, 'big revive-btn', () => {
+    if (done || run !== cur) return;
+    close();
+    if (free) save.freeRevive = todayKey();
+    else save.honey -= cost;
+    persist();
+    cur.revive();
+    show(btn('⏸', 'white icon-btn pause-btn', pauseScreen));
+  });
+  show(
+    honeyPill(),
+    h('div', { class: 'screen dim' },
+      h('div', { class: 'panel center' },
+        h('div', { class: 'revive-ant', textContent: '🐜💫' }),
+        h('h2', { textContent: t('revive') }),
+        h('div', { class: 'tagline', textContent: t('reviveSub', cur.reviveAnts) }),
+        num,
+        h('div', { class: 'list' }, accept, btn(t('skip'), 'white small', giveUp)),
+      ),
+    ),
+  );
+}
+
+function finishRun(r: RunResult) {
   save.honey += r.total;
   const questsDone = trackQuests(quests(), r);
   let newBest = false;
@@ -465,6 +585,7 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number) {
     h('div', {}, h('span', { textContent: `🐜 ${t('antsLeft')}` }), h('span', { textContent: fmt(r.antsLeft) })),
     line(`🍞 ${t('crumbs')}`, r.crumbHoney + r.fightHoney),
     line(`🍉 ${t('bigFood')}`, r.foodHoney),
+    r.bugHoney ? line(`🐞 ${t('goldBug')}`, r.bugHoney) : '',
     line(`🎖 ${t('bonus')}`, r.bonus),
     r.win ? line(`⭐ ${t('starBonus')}`, r.starBonus) : '',
     h('div', { class: 'tot' }, h('span', { textContent: `🍯 ${t('total')}` }), total),

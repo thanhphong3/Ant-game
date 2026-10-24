@@ -1,13 +1,13 @@
 import {
   INK, TAU, TRACK_HALF, drawAccessory, drawAnt, drawBeetle, drawBoostPad, drawBoss, drawCrumb, drawFood, drawFoot,
-  drawFootShadow, drawGate, drawGround, drawJar, drawObstacle, drawPowerUp, drawShield, drawSlamZone, makeAntSprites,
+  drawFootShadow, drawGate, drawGround, drawJar, drawLadybug, drawObstacle, drawPowerUp, drawShield, drawSlamZone, drawSpeech, makeAntSprites,
   paint, rrect, setBoil, text,
   type AntSprites, type BossVisual,
 } from './art';
 import type { Sound } from './audio';
 import { BOSSES, THEMES, type CaptainId } from './data';
-import { t, tr } from './i18n';
-import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, revealMystery, slotOp, type GateOp, type Level, type Squad } from './level';
+import { COMBO_WORDS, chatLine, t, tr, type ChatKind } from './i18n';
+import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, revealMystery, slotOp, type GateOp, type Level, type Obstacle, type Squad } from './level';
 
 export interface RunStats {
   startAnts: number;
@@ -32,6 +32,8 @@ export interface RunTally {
   powerups: number;
   boosts: number;
   maxAnts: number;
+  bugs: number;
+  smashed: number;
 }
 
 export interface RunResult {
@@ -40,6 +42,7 @@ export interface RunResult {
   crumbHoney: number;
   fightHoney: number;
   foodHoney: number;
+  bugHoney: number;
   bonus: number;
   stars: number;
   starBonus: number;
@@ -66,6 +69,9 @@ interface Particle {
 
 interface FloatText { x: number; y: number; s: string; color: string; life: number; size: number }
 
+/** A speech bubble over one of the ants. */
+interface Chat { ant: Ant; s: string; life: number }
+
 type Phase = 'ready' | 'run' | 'battle' | 'bossIntro' | 'boss' | 'win' | 'lose';
 
 const VMAX = 220;
@@ -74,7 +80,9 @@ const ANT = 18;
 const GOLDEN = 2.39996;
 const SMOKE = '#e3d9ee';
 const FEVER_COMBO = 10;
-const POWER_TIME = { shield: 6, magnet: 7, rage: 8 } as const;
+const POWER_TIME = { shield: 6, magnet: 7, rage: 8, giant: 6 } as const;
+const GIANT = 1.5;
+const CHAT_LIFE = 1.3;
 const SLAM_WARN = 1.0;
 const RAGE_WARN = 0.8;
 const DASH_TIME = 1.8;
@@ -109,6 +117,7 @@ export class Run {
   crumbHoney = 0;
   fightHoney = 0;
   foodHoney = 0;
+  bugHoney = 0;
   bossHP: number;
   bossMax: number;
   bossV: BossVisual = { hurt: 0, attack: 0, dead: false, rage: false };
@@ -117,8 +126,14 @@ export class Run {
   shieldT = 0;
   magnetT = 0;
   rageT = 0;
+  giantT = 0;
   feverT = 0;
   dashT = 0;
+  revives = 0;
+  private resumePhase: Phase = 'run';
+  private chats: Chat[] = [];
+  private chatCD = 0;
+  private bossLine: { s: string; life: number } | null = null;
   // boss slam: side of the arena about to be smashed (0 = the middle), its countdown,
   // and an optional quick follow-up on another side
   slam: { side: SlamSide; t: number; hit: number; warn: number; follow: SlamSide | null } | null = null;
@@ -127,7 +142,7 @@ export class Run {
   battle: Squad | null = null;
   tickAcc = 0;
   ended = false;
-  tally: RunTally = { crumbs: 0, mystery: 0, squads: 0, foods: 0, fever: 0, counters: 0, jars: 0, powerups: 0, boosts: 0, maxAnts: 0 };
+  tally: RunTally = { crumbs: 0, mystery: 0, squads: 0, foods: 0, fever: 0, counters: 0, jars: 0, powerups: 0, boosts: 0, maxAnts: 0, bugs: 0, smashed: 0 };
   private milestone = 0;
   private rageBanner = 0;
   private slotHinted = false;
@@ -178,7 +193,7 @@ export class Run {
     return this.bossD - 90 - this.radius * 0.6;
   }
   get power() {
-    return this.stats.power * (this.rageT > 0 ? 2 : 1);
+    return this.stats.power * (this.rageT > 0 ? 2 : 1) * (this.giantT > 0 ? 1.5 : 1);
   }
 
   // ------------------------------------------------------------ input
@@ -258,6 +273,21 @@ export class Run {
     this.sound.milestone();
     this.confetti(this.x, this.d, 20);
     this.float(this.x, this.d + this.radius + 75, `🐜 ${t('milestone', MILESTONES[this.milestone - 1])}`, '#7ed6ff', 30);
+    this.chat('good');
+  }
+
+  /** One ant near the middle of the swarm pipes up (rate-limited so it stays cute, not noisy). */
+  private chat(kind: ChatKind, chance = 1) {
+    if (this.chatCD > 0 || !this.ants.length || Math.random() > chance) return;
+    const ant = this.ants[Math.floor(Math.random() * Math.min(this.ants.length, 25))];
+    this.chats.push({ ant, s: chatLine(kind), life: 0 });
+    if (this.chats.length > 3) this.chats.shift();
+    this.chatCD = 0.8;
+    this.sound.chirp();
+  }
+
+  private bossSay(kind: ChatKind) {
+    this.bossLine = { s: chatLine(kind), life: 0 };
   }
 
   // ------------------------------------------------------------ fx
@@ -285,7 +315,7 @@ export class Run {
   }
   private float(x: number, y: number, s: string, color = '#fff', size = 22) {
     // keep wide labels on screen when the swarm hugs a wall
-    const lim = TRACK_HALF - size * 2.5;
+    const lim = Math.max(0, TRACK_HALF + 10 - [...s].length * size * 0.27);
     this.texts.push({ x: Math.max(-lim, Math.min(lim, x)), y, s, color, life: 0, size });
   }
 
@@ -317,6 +347,8 @@ export class Run {
     this.rageT = Math.max(0, this.rageT - dt);
     this.feverT = Math.max(0, this.feverT - dt);
     this.dashT = Math.max(0, this.dashT - dt);
+    this.giantT = Math.max(0, this.giantT - dt);
+    this.chatCD -= dt;
     this.rageBanner = Math.max(0, this.rageBanner - dt);
     if (this.dashT > 0 && Math.random() < dt * 30) this.poof(this.x + (Math.random() - 0.5) * this.radius * 1.6, this.d - this.radius * 0.8, '#ffffff', 1);
     if (this.feverT > 0 && Math.random() < dt * 10) this.sparkle(this.x + (Math.random() - 0.5) * this.radius * 2, this.d + (Math.random() - 0.5) * this.radius * 2, '#ffd166', 1);
@@ -329,9 +361,11 @@ export class Run {
       this.updateSquadContact();
       this.updateFoods();
       this.updateJars();
+      this.updateBugs(dt);
       if (this.d >= lv.length - 380) {
         this.phase = 'bossIntro';
         this.phaseT = 0;
+        this.bossSay('taunt');
         this.sound.roar();
         this.sound.setMusic('boss');
         this.shake = 10;
@@ -344,11 +378,12 @@ export class Run {
         this.phase = 'boss';
         this.phaseT = 0;
         this.tickAcc = 0;
+        this.chat('boss');
       }
     } else if (this.phase === 'boss') {
       this.updateBoss(dt);
     } else if (this.phase === 'win' || this.phase === 'lose') {
-      if (this.phaseT > 2.4 && !this.ended) {
+      if (this.phaseT > (this.phase === 'win' ? 2.4 : 1.6) && !this.ended) {
         this.ended = true;
         this.onEnd(this.result!);
       }
@@ -363,6 +398,7 @@ export class Run {
       }
     }
     for (const j of lv.jars) if (j.open) j.anim += dt;
+    for (const b of lv.bugs) if (b.state === 'gone' || b.state === 'caught') b.t += dt;
 
     this.updateAnts(dt, speed);
     this.updateFx(dt);
@@ -393,6 +429,7 @@ export class Run {
       cy = this.bossCy;
       spread = 0.8;
     }
+    if (this.giantT > 0) spread *= 1.3;
     const dance = this.phase === 'win';
     for (let i = 0; i < this.ants.length; i++) {
       const a = this.ants[i];
@@ -430,10 +467,17 @@ export class Run {
       this.tally.powerups++;
       if (p.kind === 'shield') this.shieldT = POWER_TIME.shield;
       else if (p.kind === 'magnet') this.magnetT = POWER_TIME.magnet;
-      else this.rageT = POWER_TIME.rage;
+      else if (p.kind === 'rage') this.rageT = POWER_TIME.rage;
+      else {
+        this.giantT = POWER_TIME.giant;
+        this.sound.giant();
+        this.shake = 10;
+        this.chatCD = 0;
+        this.chat('giant');
+      }
       this.sound.power();
       buzz(30);
-      this.sparkle(p.x, p.d, p.kind === 'shield' ? '#7ed6ff' : p.kind === 'magnet' ? '#ff7eb6' : '#ffb347', 18);
+      this.sparkle(p.x, p.d, p.kind === 'shield' ? '#7ed6ff' : p.kind === 'magnet' ? '#ff7eb6' : p.kind === 'giant' ? '#b5f27a' : '#ffb347', 18);
       this.float(this.x, this.d + this.radius + 50, t(p.kind), '#fff', 24);
     }
     for (const c of this.lv.crumbs) {
@@ -459,9 +503,10 @@ export class Run {
           buzz([20, 40, 20]);
           this.confetti(this.x, this.d, 30);
           this.float(this.x, this.d + this.radius + 60, t('fever'), '#ffd166', 38);
-        } else if (this.combo === 5) {
-          this.float(this.x, this.d + this.radius + 40, t('combo', this.combo), '#ff7eb6', 26);
-        }
+        } else if (COMBO_WORDS[this.combo]) {
+          this.float(this.x, this.d + this.radius + 40, tr(COMBO_WORDS[this.combo]), '#ff7eb6', 24 + Math.min(this.combo, 45) * 0.25);
+          if (this.combo >= 25) this.confetti(this.x, this.d, 12);
+        } else this.chat('munch', 0.05);
       }
     }
   }
@@ -513,10 +558,13 @@ export class Run {
         this.sound.gateGood();
         this.sparkle(gx, g.d, '#b5f27a', 14);
         if (mystery) this.confetti(gx, g.d, 24);
+        this.chat('good', 0.8);
       } else {
         this.sound.gateBad();
         this.shake = 6;
         buzz(60);
+        this.chatCD = 0;
+        this.chat('bad');
       }
     }
   }
@@ -525,8 +573,14 @@ export class Run {
     const st = this.stats;
     // obstacles
     for (const o of this.lv.obstacles) {
-      if (Math.abs(o.d - this.d) > 260) continue;
+      if (o.smashed || Math.abs(o.d - this.d) > 260) continue;
       const ox = o.x + (o.move ? Math.sin(this.time * o.move.speed + o.move.phase) * o.move.amp : 0);
+      if (this.giantT > 0) {
+        // giants just walk over everything, flattening whatever they touch
+        const R = this.radius * 1.3 + 8;
+        if (o.colliders.some((c) => (ox + c.dx - this.x) ** 2 + (o.d - c.dy - this.d) ** 2 < (R + c.r) ** 2)) this.smashObstacle(o, ox);
+        continue;
+      }
       for (const c of o.colliders) {
         const cx = ox + c.dx;
         const cy = o.d - c.dy;
@@ -553,6 +607,7 @@ export class Run {
             } else if (Math.random() < 0.25) this.float(a.x, a.y + 10, t('dodge'), '#7ed6ff', 14);
           } else {
             this.killAnt(i);
+            this.chat('hurt', 0.12);
           }
         }
       }
@@ -575,8 +630,8 @@ export class Run {
         this.shake = 16;
         buzz(80);
         this.poof(s.x, s.d, '#c7b3ff', 18);
-        if (this.shieldT > 0 || this.dashT > 0) {
-          this.float(s.x, s.d + 40, t('blocked'), '#7ed6ff', 22);
+        if (this.shieldT > 0 || this.dashT > 0 || this.giantT > 0) {
+          this.float(s.x, s.d + 40, this.giantT > 0 ? '💪' : t('blocked'), '#7ed6ff', 22);
           this.sound.block();
           continue;
         }
@@ -612,6 +667,7 @@ export class Run {
         this.battle = s;
         this.tickAcc = 0;
         this.sound.hit();
+        this.chat('boss', 0.6);
         return;
       }
     }
@@ -661,9 +717,11 @@ export class Run {
         this.sound.carry();
         this.float(f.x, f.d + 50, t('carried', f.value), '#ffd166', 18);
         this.sparkle(f.x, f.d, '#ffd166', 16);
+        this.chat('good', 0.7);
       } else {
         f.state = 'nope';
         this.sound.nope();
+        this.chat('bad', 0.7);
         this.float(f.x, f.d + 50, t('needAnts', f.need), '#ff8a80', 18);
       }
     }
@@ -684,6 +742,89 @@ export class Run {
       this.confetti(j.x, j.d, 26);
       this.sparkle(j.x, j.d, '#b5f27a', 14);
       this.float(j.x, j.d + 50, t('rescue', j.n), '#b5f27a', 24);
+      this.chatCD = 0;
+      this.chat('rescue');
+    }
+  }
+
+  private smashObstacle(o: Obstacle, ox: number) {
+    o.smashed = true;
+    this.tally.smashed++;
+    const honey = 5 + this.lv.num;
+    this.fightHoney += honey;
+    this.sound.smash();
+    buzz(40);
+    this.shake = Math.max(this.shake, 9);
+    this.poof(ox, o.d, '#c7b3ff', 14);
+    this.sparkle(ox, o.d, '#b5f27a', 10);
+    this.float(ox, o.d + 30, `${t('smash')} +${honey}🍯`, '#b5f27a', 26);
+    this.chat('giant', 0.35);
+    // a little shower of sugar where the junk used to be
+    for (let i = 0; i < 4; i++) {
+      this.lv.crumbs.push({ kind: 'sugar', x: ox + (Math.random() - 0.5) * 60, d: o.d + 20 + i * 18, value: 2, taken: false, seed: 900 + Math.floor(Math.random() * 999) });
+    }
+  }
+
+  private updateBugs(dt: number) {
+    const H = TRACK_HALF - 26;
+    for (const b of this.lv.bugs) {
+      if (b.state === 'caught' || b.state === 'gone') continue;
+      if (b.state === 'idle') {
+        if (b.d - this.d > 290) continue;
+        b.state = 'run';
+        b.t = 0;
+        b.vx = 0;
+        this.sound.bugSpot();
+        this.float(b.x, b.d + 60, t('bugSpot'), '#ffd166', 20);
+        this.chatCD = 0;
+        this.chat('bug');
+      }
+      b.t += dt;
+      // a bit slower than the swarm, so a chase lasts a few seconds (a dash closes it fast)
+      b.d += this.lv.speed * 0.62 * dt;
+      b.juke -= dt;
+      if (b.juke <= 0) {
+        if (Math.abs(b.x) > H - 12 && Math.abs(this.x - b.x) < 150 && Math.sign(this.x || 1) === Math.sign(b.x)) {
+          // cornered: dart right past the swarm to the other side!
+          b.juke = 0.55;
+          b.vx = -Math.sign(b.x) * 330;
+        } else {
+          const away = b.x >= this.x ? 1 : -1;
+          const want = away * 150 + Math.sin(b.t * 5 + b.seed) * 90;
+          b.vx += (want - b.vx) * Math.min(1, dt * 5);
+        }
+      }
+      b.x = Math.max(-H, Math.min(H, b.x + b.vx * dt));
+      b.drop -= dt;
+      if (b.drop <= 0) {
+        b.drop = 0.2;
+        this.lv.crumbs.push({ kind: Math.random() < 0.25 ? 'candy' : 'sugar', x: b.x, d: b.d - 10, value: 1, taken: false, seed: b.seed * 31 + Math.floor(b.t * 50) });
+      }
+      const R = this.radius + 18;
+      if ((b.x - this.x) ** 2 + (b.d - this.d) ** 2 < R * R) {
+        b.state = 'caught';
+        b.t = 0;
+        this.tally.bugs++;
+        const honey = 30 + this.lv.num * 6;
+        this.bugHoney += honey;
+        this.sound.jackpot();
+        buzz([30, 40, 30, 40, 60]);
+        this.shake = 8;
+        this.confetti(b.x, b.d, 40);
+        this.sparkle(b.x, b.d, '#ffd166', 20);
+        this.float(b.x, b.d + 60, t('bugCaught', honey), '#ffd166', 30);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * TAU;
+          this.lv.crumbs.push({ kind: 'sugar', x: b.x + Math.cos(a) * 30, d: b.d + Math.sin(a) * 30, value: 2, taken: false, seed: b.seed + i });
+        }
+        this.chatCD = 0;
+        this.chat('good');
+      } else if (b.t > 5.5 || b.d > this.lv.length - 430) {
+        b.state = 'gone';
+        b.t = 0;
+        this.float(b.x, b.d + 40, `🐞 ${t('bugGone')}`, '#fff', 18);
+        this.chat('bad', 0.6);
+      }
     }
   }
 
@@ -698,6 +839,8 @@ export class Run {
       buzz(40);
       this.shake = 5;
       this.float(this.x, this.d + this.radius + 50, `⚡ ${t('dash')}`, '#7ed6ff', 30);
+      this.chatCD = 0;
+      this.chat('dash');
     }
   }
 
@@ -727,6 +870,7 @@ export class Run {
       buzz([30, 30, 60]);
       this.rageBanner = 1.8;
       this.slamCD = Math.min(this.slamCD, 0.5);
+      this.bossSay('rage');
     }
     if (this.bossHP <= 0 && this.count > 0) this.win();
   }
@@ -770,11 +914,14 @@ export class Run {
         this.sound.counter();
         this.float(0, this.bossD - 60, `${t('counter')} -${dmg}`, '#ffd166', 30);
         this.sparkle(0, this.bossD - 40, '#ffd166', 20);
+        this.chat('good', 0.5);
       } else {
         const lost = Math.max(1, Math.round(this.count * frac * 0.22 * (1 - this.stats.dodge * 0.5)));
         for (const a of this.ants) if (a.x > x0 && a.x < x1 && Math.random() < 0.5) this.poof(a.x, a.y, SMOKE, 2);
         this.addCount(-lost, this.bossCx, this.bossCy);
         this.float((x0 + x1) / 2, this.bossCy + 40, `${t('ouch')} -${lost}`, '#ff8a80', 24);
+        this.chatCD = 0;
+        this.chat('hurt', 0.8);
       }
       this.slamCD = rage ? 0.45 + Math.random() * 0.35 : 0.7 + Math.random() * 0.5;
       return;
@@ -807,18 +954,22 @@ export class Run {
     const antsLeft = Math.floor(this.count);
     buzz([40, 60, 40, 60, 120]);
     this.slam = null;
+    this.bossSay('bossWin');
+    this.chatCD = 0;
+    this.chat('win');
     const bonus = 20 + this.lv.num * 8 + antsLeft;
     // Stars: how much of an army is still standing compared to the boss it beat.
     const ratio = antsLeft / Math.max(1, this.bossMax);
     const stars = ratio >= 0.6 ? 3 : ratio >= 0.25 ? 2 : 1;
     const starBonus = stars * (5 + this.lv.num * 2);
-    const base = this.crumbHoney + this.fightHoney + this.foodHoney + bonus + starBonus;
+    const base = this.crumbHoney + this.fightHoney + this.foodHoney + this.bugHoney + bonus + starBonus;
     this.result = {
       win: true,
       antsLeft,
       crumbHoney: Math.round(this.crumbHoney),
       fightHoney: this.fightHoney,
       foodHoney: this.foodHoney,
+      bugHoney: this.bugHoney,
       bonus,
       stars,
       starBonus,
@@ -828,6 +979,8 @@ export class Run {
   }
 
   private lose() {
+    this.resumePhase = this.phase === 'battle' ? 'run' : this.phase;
+    this.battle = null;
     this.phase = 'lose';
     this.phaseT = 0;
     this.count = 0;
@@ -835,19 +988,53 @@ export class Run {
     this.sound.setMusic('off');
     this.slam = null;
     buzz(200);
-    const base = (this.crumbHoney + this.fightHoney + this.foodHoney) * 0.5;
+    const base = (this.crumbHoney + this.fightHoney + this.foodHoney + this.bugHoney) * 0.5;
     this.result = {
       win: false,
       antsLeft: 0,
       crumbHoney: Math.round(this.crumbHoney * 0.5),
       fightHoney: Math.round(this.fightHoney * 0.5),
       foodHoney: Math.round(this.foodHoney * 0.5),
+      bugHoney: Math.round(this.bugHoney * 0.5),
       bonus: 0,
       stars: 0,
       starBonus: 0,
       total: Math.round(base * this.stats.honeyMult),
       tally: { ...this.tally },
     };
+  }
+
+  /** How many ants a revive brings back: enough to have a real shot at the boss. */
+  get reviveAnts() {
+    const n = Math.max(10, Math.round(this.tally.maxAnts * 0.4));
+    if (this.resumePhase !== 'boss' && this.resumePhase !== 'bossIntro') return n;
+    return Math.max(n, Math.ceil((this.bossHP / this.stats.power) * 0.75));
+  }
+
+  /** Second chance after the swarm is wiped out: pick up right where it fell, with a shield. */
+  revive() {
+    if (this.phase !== 'lose') return;
+    const n = this.reviveAnts;
+    this.revives++;
+    this.phase = this.resumePhase;
+    this.phaseT = 0;
+    this.ended = false;
+    this.result = null;
+    this.slam = null;
+    this.slamCD = 1.5;
+    this.tickAcc = 0;
+    this.combo = 0;
+    this.shieldT = 4;
+    const boss = this.phase === 'boss';
+    this.count = n;
+    this.syncAnts(boss ? this.bossCx : this.x, boss ? this.bossCy : this.d);
+    this.sound.revive();
+    this.sound.setMusic(boss || this.phase === 'bossIntro' ? 'boss' : 'run');
+    buzz([30, 30, 80]);
+    this.confetti(this.x, this.d, 40);
+    this.float(boss ? this.bossCx : this.x, (boss ? this.bossCy : this.d) + this.radius + 50, `💖 ${t('revived')}`, '#ff7eb6', 34);
+    this.chatCD = 0;
+    this.chat('good');
   }
 
   private updateFx(dt: number) {
@@ -871,6 +1058,9 @@ export class Run {
       f.y += 40 * dt;
     }
     this.texts = this.texts.filter((f) => f.life < 1.1);
+    for (const c of this.chats) c.life += dt;
+    this.chats = this.chats.filter((c) => c.life < CHAT_LIFE);
+    if (this.bossLine && (this.bossLine.life += dt) > 2.2) this.bossLine = null;
   }
 
   // ------------------------------------------------------------ render
@@ -946,8 +1136,17 @@ export class Run {
       }
     }
 
+    for (const b of lv.bugs) {
+      if (!vis(b.d, 160) || b.state === 'caught' || (b.state === 'gone' && b.t > 1.2)) continue;
+      const fly = b.state === 'gone' ? b.t / 1.2 : 0;
+      ctx.globalAlpha = 1 - fly * fly;
+      drawLadybug(ctx, b.x, Y(b.d), tm, b.seed, b.state === 'run', fly);
+      ctx.globalAlpha = 1;
+      if (b.state === 'idle') this.badge(ctx, b.x, Y(b.d) - 42, '🍯 ?', '#e0a526', 14);
+    }
+
     for (const o of lv.obstacles) {
-      if (!vis(o.d, 120)) continue;
+      if (o.smashed || !vis(o.d, 120)) continue;
       const ox = o.x + (o.move ? Math.sin(tm * o.move.speed + o.move.phase) * o.move.amp : 0);
       drawObstacle(ctx, o.kind, ox, Y(o.d), o.seed, tm, o.flip);
     }
@@ -993,7 +1192,7 @@ export class Run {
     const swarmSpr = this.feverT > 0 ? this.goldSpr : this.rageT > 0 ? this.rageSpr : this.spr;
     for (let i = this.ants.length - 1; i >= 0; i--) {
       const a = this.ants[i];
-      const size = ANT * (a.pop < 1 ? 0.4 + a.pop * 0.6 + Math.sin(a.pop * Math.PI) * 0.4 : 1) * (this.feverT > 0 ? 1.1 : 1);
+      const size = ANT * (a.pop < 1 ? 0.4 + a.pop * 0.6 + Math.sin(a.pop * Math.PI) * 0.4 : 1) * (this.feverT > 0 ? 1.1 : 1) * (this.giantT > 0 ? GIANT : 1);
       if (a.inv > 0 && this.shieldT <= 0 && Math.floor(tm * 20) % 2) continue;
       drawAnt(ctx, swarmSpr, a.x, Y(a.y), a.ang, size, Math.floor(a.ft));
     }
@@ -1005,7 +1204,7 @@ export class Run {
         drawShield(ctx, capX, Y(capD), this.radius + 18, tm, fade);
       }
       const bounce = this.phase === 'win' ? Math.abs(Math.sin(tm * 7)) * 12 : 0;
-      const capSize = ANT * 1.9 * (this.stats.captain === 'chubby' ? 1.12 : 1);
+      const capSize = ANT * 1.9 * (this.stats.captain === 'chubby' ? 1.12 : 1) * (this.giantT > 0 ? 1.3 : 1);
       drawAnt(ctx, this.capSpr, capX, Y(capD) - bounce, 0, capSize, Math.floor(tm * 12));
       drawAccessory(ctx, this.stats.captain, capX, Y(capD) - bounce, capSize, tm);
     }
@@ -1018,6 +1217,12 @@ export class Run {
         const bname = BOSSES.find((b) => b.kind === lv.boss)!;
         text(ctx, tr(bname.name), 0, Y(this.bossD) - 140, 16, '#fff', INK);
       }
+      if (this.bossLine) {
+        const l = this.bossLine.life;
+        ctx.globalAlpha = Math.min(1, (2.2 - l) * 3);
+        drawSpeech(ctx, this.bossLine.s, 70, Y(this.bossD) - 150, 15, Math.min(1, l * 6), '#ffe3ea');
+        ctx.globalAlpha = 1;
+      }
     }
 
     // foot on top of everything it squashes
@@ -1027,6 +1232,14 @@ export class Run {
       else if (s.state === 'down') drawFoot(ctx, s.x, Y(s.d), 58, 0);
       else if (s.state === 'up') drawFoot(ctx, s.x, Y(s.d), 58, s.timer / 0.5);
     }
+
+    // ant chatter
+    for (const c of this.chats) {
+      const k = c.life < 0.15 ? (c.life / 0.15) * 1.1 : 1;
+      ctx.globalAlpha = Math.min(1, (CHAT_LIFE - c.life) * 4);
+      drawSpeech(ctx, c.s, c.ant.x, Y(c.ant.y) - 12 * (this.giantT > 0 ? GIANT : 1), 14, k);
+    }
+    ctx.globalAlpha = 1;
 
     // particles
     for (const p of this.parts) {
@@ -1143,7 +1356,7 @@ export class Run {
     const lbl = !this.lv.daily ? `${t('level')} ${this.lv.num}` : t('daily');
     text(ctx, lbl, bx, by + 32 * u, 15 * u, '#fff', INK, 'left');
     // honey
-    const honey = Math.round(this.crumbHoney + this.fightHoney + this.foodHoney);
+    const honey = Math.round(this.crumbHoney + this.fightHoney + this.foodHoney + this.bugHoney);
     text(ctx, `🍯 ${honey}`, bx + bw, by + 32 * u, 15 * u, '#ffd166', INK, 'right');
 
     // active buffs
@@ -1153,6 +1366,7 @@ export class Run {
       ['🛡️', this.shieldT, POWER_TIME.shield, '#7ed6ff'],
       ['🧲', this.magnetT, POWER_TIME.magnet, '#ff7eb6'],
       ['💢', this.rageT, POWER_TIME.rage, '#ffb347'],
+      ['🍄', this.giantT, POWER_TIME.giant, '#b5f27a'],
     ];
     let px = bx;
     for (const [icon, left, max, col] of buffs) {

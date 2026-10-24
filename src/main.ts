@@ -5,6 +5,7 @@ import { CAPTAINS, THEMES, UPGRADES, upgradeCost, type CaptainId } from './data'
 import { Run, type RunResult, type RunStats } from './game';
 import { getLang, setLang, t, tr } from './i18n';
 import { generateLevel } from './level';
+import { bonusReady, claimable, makeQuests, questDef, trackQuests } from './quests';
 import { hashString } from './rng';
 import { loadSave, resetSave, todayKey, writeSave } from './save';
 
@@ -63,15 +64,37 @@ function show(...els: HTMLElement[]) {
   ui.replaceChildren(...els);
 }
 
-function toast(msg: string) {
+function toast(msg: string, ms = 1400) {
   const el = h('div', { class: 'toast', textContent: msg });
+  el.style.bottom = `${40 + ui.querySelectorAll('.toast').length * 44}px`; // stack, don't overlap
   ui.append(el);
-  setTimeout(() => el.remove(), 1400);
+  setTimeout(() => el.remove(), ms);
 }
 
 const honeyPill = () => h('div', { class: 'honey-pill', textContent: `🍯 ${save.honey}` });
 const persist = () => writeSave(save);
 const fmt = (n: number) => n.toLocaleString(getLang() === 'vi' ? 'vi-VN' : 'en-US');
+
+/** Today's quest book, rolled over at midnight. */
+function quests() {
+  const day = todayKey();
+  if (!save.quests || save.quests.day !== day || save.quests.list.some((q) => !questDef(q.id))) {
+    save.quests = makeQuests(day, save.level);
+    persist();
+  }
+  return save.quests;
+}
+
+/** Ease a number shown in `el` from `from` to `to`. */
+function countUp(el: HTMLElement, from: number, to: number, ms: number) {
+  const t0 = performance.now();
+  const tick = () => {
+    const k = Math.min(1, (performance.now() - t0) / ms);
+    el.textContent = fmt(Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  tick();
+}
 
 function stats(): RunStats {
   const u = save.upgrades;
@@ -102,6 +125,7 @@ function menuScreen() {
     title.append(s);
   });
   const best = save.daily[todayKey()];
+  const nq = claimable(quests());
   show(
     honeyPill(),
     h('div', { class: 'screen' },
@@ -115,9 +139,12 @@ function menuScreen() {
         btn(`🏠 ${t('nest')}`, 'pink', nestScreen),
         btn(`🐜 ${t('colony')}`, 'grape', collectionScreen),
       ),
-      h('div', { class: 'row' }, btn('⚙️', 'white icon-btn', settingsScreen)),
+      h('div', { class: 'row' },
+        btn(`📜 ${t('quests')}${nq ? `<span class="dot">${nq}</span>` : ''}`, 'quest-btn', questScreen),
+        btn('⚙️', 'white icon-btn', settingsScreen),
+      ),
     ),
-    h('div', { class: 'version', textContent: 'v1.1' }),
+    h('div', { class: 'version', textContent: 'v1.2' }),
   );
 }
 
@@ -214,6 +241,63 @@ function collectionScreen() {
   );
 }
 
+function questScreen() {
+  const book = quests();
+  const claim = (amount: number, mark: () => void) => {
+    mark();
+    save.honey += amount;
+    persist();
+    sound.win();
+    questScreen();
+  };
+  const list = h('div', { class: 'list' });
+  for (const q of book.list) {
+    const def = questDef(q.id)!;
+    const done = q.prog >= q.goal;
+    const fill = h('div', { class: 'qfill' });
+    fill.style.width = `${(q.prog / q.goal) * 100}%`;
+    const action = q.claimed
+      ? h('div', { class: 'btn small white', textContent: '✔' })
+      : done
+        ? btn(`${t('claim')} 🍯${fmt(q.reward)}`, 'small', () => claim(q.reward, () => (q.claimed = true)))
+        : h('div', { class: 'qreward', textContent: `🍯 ${fmt(q.reward)}` });
+    list.append(
+      h('div', { class: `item${q.claimed ? ' claimed' : done ? ' ready' : ''}` },
+        h('div', { class: 'ico', textContent: def.icon }),
+        h('div', { class: 'info' },
+          h('div', { class: 'name', textContent: tr(def.text).replace('{0}', fmt(q.goal)) }),
+          h('div', { class: 'qbar' }, fill),
+          h('div', { class: 'desc', textContent: `${fmt(q.prog)} / ${fmt(q.goal)}` }),
+        ),
+        action,
+      ),
+    );
+  }
+  const bonus = book.bonusClaimed
+    ? h('div', { class: 'btn small white', textContent: '✔' })
+    : bonusReady(book)
+      ? btn(`${t('claim')} 🍯${fmt(book.bonus)}`, 'small', () => claim(book.bonus, () => (book.bonusClaimed = true)))
+      : h('div', { class: 'qreward', textContent: `🍯 ${fmt(book.bonus)}` });
+  list.append(
+    h('div', { class: `item bonus${book.bonusClaimed ? ' claimed' : ''}` },
+      h('div', { class: 'ico', textContent: '🎁' }),
+      h('div', { class: 'info' }, h('div', { class: 'name', textContent: t('allQuests') })),
+      bonus,
+    ),
+  );
+  show(
+    honeyPill(),
+    h('div', { class: 'screen' },
+      h('div', { class: 'panel' },
+        h('h2', { textContent: `📜 ${t('quests')}` }),
+        h('div', { class: 'tagline', textContent: t('questsSub') }),
+        list,
+        h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen)),
+      ),
+    ),
+  );
+}
+
 function settingsScreen() {
   const toggle = (on: boolean, f: () => void) => btn(on ? `🔊 ${t('on')}` : `🔇 ${t('off')}`, `small ${on ? 'sky' : 'white'}`, f);
   show(
@@ -298,6 +382,7 @@ function pauseScreen() {
 
 function onRunEnd(r: RunResult) {
   save.honey += r.total;
+  const questsDone = trackQuests(quests(), r);
   let newBest = false;
   if (runIsDaily) {
     const k = todayKey();
@@ -312,7 +397,7 @@ function onRunEnd(r: RunResult) {
     save.fails++;
   }
   persist();
-  resultScreen(r, newBest);
+  resultScreen(r, newBest, questsDone);
 }
 
 function starRow(n: number) {
@@ -326,7 +411,54 @@ function starRow(n: number) {
   return row;
 }
 
-function resultScreen(r: RunResult, newBest: boolean) {
+/**
+ * Victory bonus: a needle swings across ×1.5 / ×2 / ×3 slots and the player
+ * taps to stop it. The needle is fastest over the narrow ×3 in the middle.
+ */
+function luckyBar(onStop: (mult: number) => void) {
+  const SEGS = [1.5, 2, 3, 2, 1.5];
+  const EDGES = [0, 0.2, 0.44, 0.56, 0.8, 1];
+  const segAt = (p: number) => {
+    const i = EDGES.findIndex((e) => p < e);
+    return i < 0 ? SEGS.length - 1 : Math.max(0, i - 1);
+  };
+  const bar = h('div', { class: 'lucky-bar' });
+  SEGS.forEach((m, i) => {
+    const seg = h('div', { class: `seg${m === 3 ? ' top' : m === 2 ? ' mid' : ''}`, textContent: `×${m}` });
+    seg.style.flex = String(EDGES[i + 1] - EDGES[i]);
+    bar.append(seg);
+  });
+  const needle = h('div', { class: 'needle' });
+  bar.append(needle);
+  let p = 0;
+  let seg = -1;
+  let stopped = false;
+  const t0 = performance.now();
+  const stop = btn(`🍀 ${t('stop')}`, 'lucky-btn', () => {
+    if (stopped) return;
+    stopped = true;
+    stop.disabled = true;
+    const i = segAt(p);
+    bar.children[i].classList.add('hit');
+    onStop(SEGS[i]);
+  });
+  const spin = () => {
+    if (stopped || !bar.isConnected) return;
+    p = 0.5 - 0.5 * Math.cos(((performance.now() - t0) / 1000) * 2.8);
+    needle.style.left = `${p * 100}%`;
+    const i = segAt(p);
+    if (i !== seg) {
+      seg = i;
+      stop.innerHTML = `🍀 ${t('stop')} ×${SEGS[i]}`;
+      sound.tick();
+    }
+    requestAnimationFrame(spin);
+  };
+  requestAnimationFrame(spin);
+  return h('div', { class: 'lucky' }, h('div', { class: 'lucky-title', textContent: t('lucky') }), bar, stop);
+}
+
+function resultScreen(r: RunResult, newBest: boolean, questsDone: number) {
   const line = (label: string, v: number) => h('div', {}, h('span', { textContent: label }), h('span', { textContent: `+${fmt(v)}` }));
   const total = h('span', { textContent: '0' });
   const lines = h('div', { class: 'result-lines' },
@@ -337,25 +469,31 @@ function resultScreen(r: RunResult, newBest: boolean) {
     r.win ? line(`⭐ ${t('starBonus')}`, r.starBonus) : '',
     h('div', { class: 'tot' }, h('span', { textContent: `🍯 ${t('total')}` }), total),
   );
-  // count-up animation
-  const t0 = performance.now();
-  const tick = () => {
-    const k = Math.min(1, (performance.now() - t0) / 900);
-    total.textContent = fmt(Math.round(r.total * (1 - Math.pow(1 - k, 3))));
-    if (k < 1) requestAnimationFrame(tick);
-  };
-  tick();
+  countUp(total, 0, r.total, 900);
+  const pill = honeyPill();
+  const lucky = r.win
+    ? luckyBar((mult) => {
+        const extra = Math.round(r.total * (mult - 1));
+        save.honey += extra;
+        persist();
+        sound.win();
+        countUp(total, r.total, r.total + extra, 700);
+        pill.textContent = `🍯 ${save.honey}`;
+        toast(`🍀 ×${mult}! +${fmt(extra)} 🍯`);
+      })
+    : '';
   const primary = r.win && !runIsDaily
     ? btn(`▶ ${t('level')} ${save.level}`, 'big', () => startRun(false))
     : btn(`↻ ${t('retry')}`, 'big', () => startRun(runIsDaily));
   show(
-    honeyPill(),
+    pill,
     h('div', { class: 'screen dim' },
       h('div', { class: 'panel center' },
         h('h2', { textContent: r.win ? `🎉 ${t('win')}` : `😵 ${t('lose')}` }),
         r.win ? starRow(r.stars) : '',
         newBest ? h('div', { class: 'tagline', textContent: `🏆 ${t('newBest')}` }) : '',
         lines,
+        lucky,
         h('div', { class: 'list' },
           primary,
           h('div', { class: 'row' }, btn(`🏠 ${t('nest')}`, 'pink small', nestScreen), btn(`↩ ${t('home')}`, 'white small', menuScreen)),
@@ -363,6 +501,7 @@ function resultScreen(r: RunResult, newBest: boolean) {
       ),
     ),
   );
+  if (questsDone) setTimeout(() => toast(`📜 ${t('questDone')}`, 2200), 1100);
 }
 
 // ------------------------------------------------------------------ input

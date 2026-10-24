@@ -1,6 +1,6 @@
 import type { Lang } from './i18n';
 
-type Txt = { vi: string; en: string };
+export type Txt = { vi: string; en: string };
 
 export type UpgradeId = 'colony' | 'power' | 'magnet' | 'armor' | 'honey';
 
@@ -59,11 +59,13 @@ export const THEMES: ThemeDef[] = [
   { name: { vi: 'Xứ kẹo ngọt', en: 'Candy land' }, bg: '#fde7f6', bg2: '#d9f1ff', side: '#ffd36e', edge: '#e58fc4' },
 ];
 
-export type BossKind = 'spider' | 'frog' | 'lizard' | 'beetleKing';
+export type BossKind = 'spider' | 'frog' | 'lizard' | 'mantis' | 'bee' | 'beetleKing';
 export const BOSSES: { kind: BossKind; name: Txt }[] = [
   { kind: 'spider', name: { vi: 'Nhện Lông Lá', en: 'Fuzzy Spider' } },
   { kind: 'frog', name: { vi: 'Ếch Háu Ăn', en: 'Hungry Frog' } },
   { kind: 'lizard', name: { vi: 'Thằn Lằn Lém Lỉnh', en: 'Sneaky Gecko' } },
+  { kind: 'mantis', name: { vi: 'Bọ Ngựa Võ Sĩ', en: 'Kung-fu Mantis' } },
+  { kind: 'bee', name: { vi: 'Ong Chúa Cáu Kỉnh', en: 'Grumpy Queen Bee' } },
   { kind: 'beetleKing', name: { vi: 'Vua Bọ Hung', en: 'Beetle King' } },
 ];
 

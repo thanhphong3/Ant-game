@@ -61,6 +61,18 @@ const dict = {
   stars: { vi: 'Sao', en: 'Stars' },
   starBonus: { vi: 'Thưởng sao', en: 'Star bonus' },
   tipBoss: { vi: 'Mẹo: khi trùm đánh, kéo đàn kiến sang phía an toàn để phản đòn!', en: 'Tip: when the boss strikes, move to the safe side to counter!' },
+  rescue: { vi: 'Giải cứu! +{0}', en: 'Rescued! +{0}' },
+  dash: { vi: 'TĂNG TỐC!', en: 'DASH!' },
+  slotHint: { vi: '🎰 Canh đúng lúc!', en: '🎰 Time it right!' },
+  bossRage: { vi: 'TRÙM NỔI ĐIÊN!', en: 'BOSS IS FURIOUS!' },
+  milestone: { vi: '{0} KIẾN!', en: '{0} ANTS!' },
+  lucky: { vi: 'Nhân thưởng may mắn', en: 'Lucky multiplier' },
+  stop: { vi: 'Dừng!', en: 'Stop!' },
+  quests: { vi: 'Nhiệm vụ', en: 'Quests' },
+  questsSub: { vi: 'Nhiệm vụ mới mỗi ngày!', en: 'New quests every day!' },
+  claim: { vi: 'Nhận', en: 'Claim' },
+  questDone: { vi: 'Xong nhiệm vụ! Vào 📜 để nhận thưởng', en: 'Quest complete! Claim it in 📜' },
+  allQuests: { vi: 'Xong cả 3: thưởng thêm', en: 'All 3 done: extra' },
 } as const;
 
 export type Key = keyof typeof dict;

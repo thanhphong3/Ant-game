@@ -12,17 +12,24 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 - 🍉 Mồi to: cần đủ số kiến, vài con sẽ khiêng về tổ để đổi lấy nhiều mật.
 - 🦶 Coi chừng bàn chân khổng lồ, cái thìa, cục tẩy, hạt đậu lăn…
 - ❓ Cổng bí ẩn: đổi vận may — có thể là ×2, ×3… hoặc một cú lừa!
+- 🎰 Cổng xoay số: một bên cổng liên tục đổi giá trị (×2, −, +, ÷2) — canh đúng lúc mà chui vào!
+- 🔓 Hũ kiến bị nhốt: chạm vào để giải cứu cả đám, nhưng thường có bẫy canh giữ.
+- ⚡ Đường tăng tốc: chạy lên mũi tên để lao vút đi, bất tử trong chốc lát và hút sạch vụn bánh.
 - 🫧 Power-up: 🛡️ khiên bong bóng (miễn nhiễm bẫy), 🧲 siêu nam châm, 🔥 kiến nổi giận (x2 sức đánh).
 - 🔥 Ăn liền 10 vụn bánh để vào chế độ **CUỒNG NHIỆT**: kiến vàng óng, mỗi vụn bánh x2 kiến.
-- 👑 Cuối màn: đánh trùm (Nhện, Ếch, Thằn lằn, Vua Bọ Hung). Trùm sẽ đập xuống một bên sân — kéo đàn kiến sang phía an toàn để né và **phản đòn**!
+- 👑 Cuối màn: đánh trùm (Nhện, Ếch, Thằn lằn, Bọ Ngựa Võ Sĩ, Ong Chúa, Vua Bọ Hung). Trùm sẽ đập xuống một bên sân — kéo đàn kiến sang phía an toàn để né và **phản đòn**!
+- 💢 Còn nửa máu, trùm **nổi điên**: đánh nhanh hơn, đập cả giữa sân và tung combo hai đòn liên tiếp.
 - ⭐ Thắng màn được chấm 1–3 sao theo số kiến còn lại, sao càng nhiều mật càng nhiều.
+- 🍀 Thắng xong còn có thanh **nhân thưởng may mắn**: bấm dừng kim đúng ô ×3 để nhân ba số mật!
+- 🎉 Đàn kiến chạm mốc 25, 50, 100… con sẽ được ăn mừng.
 
 ## Tính năng / Features
 - Màn chơi vô hạn, sinh ngẫu nhiên theo seed, 5 bối cảnh: khăn picnic, bàn bếp, vườn, sàn gỗ, xứ kẹo.
 - 🏠 Tổ kiến: 5 nâng cấp (đàn khởi đầu, sức mạnh, nam châm, giáp lá, hũ mật).
 - 🐜 Bộ sưu tập 8 kiến đội trưởng với kỹ năng riêng (Nón Lá, Ninja, Béo, DJ, Phi Hành Gia, Hiệp Sĩ, Vua…).
-- Power-up, cổng bí ẩn, chế độ cuồng nhiệt, trùm biết ra đòn và chấm sao. Rung nhẹ trên điện thoại khi trúng đòn.
+- Power-up, cổng bí ẩn, cổng xoay số, hũ giải cứu, đường tăng tốc, chế độ cuồng nhiệt, trùm biết ra đòn (và nổi điên) cùng chấm sao. Rung nhẹ trên điện thoại khi trúng đòn.
 - 📅 Thử thách ngày: cùng một màn cho mọi người mỗi ngày, lưu kỷ lục.
+- 📜 Nhiệm vụ hằng ngày: 3 nhiệm vụ mới mỗi ngày (ăn vụn bánh, phản đòn trùm, giải cứu hũ kiến…), xong cả 3 có quà thêm.
 - Tiếng Việt / English, nhạc và hiệu ứng âm thanh tự tổng hợp (Web Audio), lưu tiến trình bằng localStorage.
 - Toàn bộ hình vẽ bằng code (canvas), phong cách doodle nét rung rinh, không cần file ảnh.
 

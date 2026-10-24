@@ -1,5 +1,6 @@
 import type { CaptainId, UpgradeId } from './data';
 import type { Lang } from './i18n';
+import type { QuestBook } from './quests';
 
 export interface SaveData {
   honey: number;
@@ -12,6 +13,7 @@ export interface SaveData {
   music: boolean;
   daily: Record<string, number>;
   fails: number; // failed attempts on the current level (makes the boss a bit weaker)
+  quests: QuestBook | null;
 }
 
 const KEY = 'ant-rumble-save-v1';
@@ -27,6 +29,7 @@ const fresh = (): SaveData => ({
   music: true,
   daily: {},
   fails: 0,
+  quests: null,
 });
 
 export function loadSave(): SaveData {

@@ -468,7 +468,8 @@ export function drawCrumb(ctx: C, kind: CrumbKind, x: number, y: number, seed: n
 }
 
 // ---------------------------------------------------------------- gates
-export function drawGate(ctx: C, x: number, y: number, w: number, label: string, good: boolean | 'mystery', used: number, t: number, seed: number) {
+/** `slot` >= 0 marks a slot gate: it is the 0..1 progress through the current face, used to roll the label in. */
+export function drawGate(ctx: C, x: number, y: number, w: number, label: string, good: boolean | 'mystery', used: number, t: number, seed: number, slot = -1) {
   const h = 44;
   const pop = used > 0 ? 1 + used * 0.4 : 1 + Math.sin(t * 5 + seed) * 0.02;
   const alpha = used > 0 ? Math.max(0, 1 - used * 1.8) : 1;
@@ -484,6 +485,17 @@ export function drawGate(ctx: C, x: number, y: number, w: number, label: string,
   paint(ctx, col, 0);
   ctx.globalAlpha = alpha;
   paint(ctx, null, 2.6, dark);
+  if (slot >= 0) {
+    // marching golden lights around a slot gate
+    ctx.save();
+    rrect(ctx, -w / 2, -h / 2 - 4, w, h + 8, 15, seed, 0);
+    ctx.setLineDash([3, 9]);
+    ctx.lineDashOffset = -t * 40;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#ffd166';
+    ctx.stroke();
+    ctx.restore();
+  }
   // diagonal stripes
   ctx.save();
   rrect(ctx, -w / 2 + 4, -h / 2, w - 8, h, 12, seed, 0);
@@ -497,8 +509,98 @@ export function drawGate(ctx: C, x: number, y: number, w: number, label: string,
     ctx.lineTo(sx + off + 26, -h / 2);
     ctx.stroke();
   }
+  if (slot >= 0) {
+    // slot-machine reel: each new face drops in from the top
+    text(ctx, label, 0, 2 - Math.max(0, 1 - slot * 6) * 30, 26, '#fff', dark);
+  }
   ctx.restore();
-  text(ctx, label, 0, 2, 26, '#fff', dark);
+  if (slot < 0) {
+    text(ctx, label, 0, 2, 26, '#fff', dark);
+  } else {
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * (w / 2 - 12), -7);
+      ctx.lineTo(s * (w / 2 - 22), 1);
+      ctx.lineTo(s * (w / 2 - 12), 9);
+      ctx.closePath();
+      paint(ctx, '#fff', 2, dark);
+    }
+    ctx.font = '17px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🎰', 0, -h / 2 - 9);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- rescue jar & boost pad
+/**
+ * Glass jar of trapped ants. `inside` draws the prisoners in jar-local
+ * coordinates, between the back of the jar and the glass. `open` counts
+ * seconds since the swarm broke it (0 = still closed).
+ */
+export function drawJar(ctx: C, x: number, y: number, seed: number, t: number, open: number, inside: () => void) {
+  ctx.fillStyle = 'rgba(0,0,0,0.13)';
+  ctx.beginPath();
+  ctx.ellipse(x + 3, y + 27, 28 * (1 + open), 8, 0, 0, TAU);
+  ctx.fill();
+  const fade = Math.max(0, 1 - open * 2.4);
+  if (fade <= 0) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(open > 0 ? 0 : Math.sin(t * 9 + seed) * 0.06); // rattled by the ants inside
+  ctx.globalAlpha = fade;
+  rrect(ctx, -25, -24, 50, 52, 15, seed, 0.6);
+  paint(ctx, 'rgba(205,238,255,0.55)', 0);
+  inside();
+  ctx.globalAlpha = fade;
+  rrect(ctx, -25, -24, 50, 52, 15, seed, 0.6);
+  ctx.fillStyle = 'rgba(205,238,255,0.25)';
+  ctx.fill();
+  paint(ctx, null, 2.6, '#5d8fb3');
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(-16, -12);
+  ctx.lineTo(-16, 12);
+  ctx.stroke();
+  // lid pops off and spins away when opened
+  ctx.translate(open * 70, -open * 160);
+  ctx.rotate(open * 9);
+  rrect(ctx, -21, -33, 42, 12, 5, seed + 3, 0.5);
+  paint(ctx, '#ef4b5f', 2.4);
+  ctx.fillStyle = '#fff';
+  for (const dx of [-12, 0, 12]) {
+    ctx.beginPath();
+    ctx.arc(dx, -27, 2.2, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Speed pad. `y` is the screen y of its near edge; it stretches `l` up the track. */
+export function drawBoostPad(ctx: C, x: number, y: number, w: number, l: number, t: number, used: boolean) {
+  ctx.save();
+  rrect(ctx, x - w / 2, y - l, w, l, 14, x, 0.6);
+  paint(ctx, used ? '#d8f1fb' : '#7ed6ff', 2.6);
+  ctx.clip();
+  for (let i = 0; i < 3; i++) {
+    const k = (t * (used ? 0.6 : 2.2) + i / 3) % 1;
+    const cy = y - 8 - k * (l - 10);
+    ctx.globalAlpha = Math.sin(k * Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(x - w * 0.3, cy + 9);
+    ctx.lineTo(x, cy - 7);
+    ctx.lineTo(x + w * 0.3, cy + 9);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 11;
+    ctx.strokeStyle = INK;
+    ctx.stroke();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = used ? '#fff' : '#ffd166';
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -840,11 +942,13 @@ export interface BossVisual {
   hurt: number; // 0..1 flash
   attack: number; // 0..1 lunge
   dead: boolean;
+  rage: boolean; // below half HP: steaming mad and attacking faster
 }
 
 export function drawBoss(ctx: C, kind: BossKind, x: number, y: number, t: number, v: BossVisual) {
   ctx.save();
-  ctx.translate(x, y + v.attack * 26);
+  const angry = v.rage && !v.dead;
+  ctx.translate(x + (angry ? Math.sin(t * 40) * 1.5 : 0), y + v.attack * 26);
   const sx = 1 + Math.sin(t * 3) * 0.03 + v.hurt * 0.08;
   ctx.scale(sx, 2 - sx);
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -1001,6 +1105,202 @@ export function drawBoss(ctx: C, kind: BossKind, x: number, y: number, t: number
       cheeks(ctx, 0, 66, 18, 5);
       break;
     }
+    case 'mantis': {
+      const sway = Math.sin(t * 2.2) * 5;
+      // long abdomen and folded wings, pointing away from the ants
+      blob(ctx, 0, -60, 25, 52, 70, 0.05);
+      paint(ctx, tint('#7cc46a'), 3);
+      ctx.strokeStyle = '#5ea24f';
+      ctx.lineWidth = 3;
+      for (const yy of [-92, -74, -56, -38]) {
+        ctx.beginPath();
+        ctx.moveTo(-19, yy);
+        ctx.quadraticCurveTo(0, yy + 7, 19, yy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.6;
+      for (const s of [-1, 1]) {
+        blob(ctx, s * 11, -52, 15, 44, 71 + s, 0.04, s * 0.15);
+        paint(ctx, '#ecffe0', 2, '#5ea24f');
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      for (const s of [-1, 1]) {
+        for (let k = 0; k < 2; k++) {
+          const w = Math.sin(t * 6 + k * 2 + s) * 5;
+          ctx.beginPath();
+          ctx.moveTo(s * 10, -18 + k * 16);
+          ctx.lineTo(s * 52, -42 + k * 30 + w);
+          ctx.lineTo(s * 74, -8 + k * 32 + w);
+          ctx.stroke();
+        }
+      }
+      blob(ctx, 0, 2, 15, 32, 72, 0.05);
+      paint(ctx, tint('#8fd16a'), 3);
+      // praying scythe arms: raised high, chopping down on attack
+      const limb = (pts: number[], w: number, col: string) => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0], pts[1]);
+        for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = w + 5;
+        ctx.stroke();
+        ctx.strokeStyle = col;
+        ctx.lineWidth = w;
+        ctx.stroke();
+      };
+      for (const s of [-1, 1]) {
+        const ex = s * 60;
+        const ey = -16 + sway * s;
+        const tx = s * (56 - v.attack * 14);
+        const ty = 34 + v.attack * 50;
+        limb([s * 12, 14, ex, ey], 9, tint('#8fd16a'));
+        limb([ex, ey, tx, ty], 8, tint('#b5f27a'));
+        ctx.fillStyle = INK;
+        for (let k = 1; k <= 3; k++) {
+          const px = ex + (tx - ex) * (k / 4);
+          const py = ey + (ty - ey) * (k / 4);
+          ctx.beginPath();
+          ctx.moveTo(px - s * 3, py - 4);
+          ctx.lineTo(px - s * 12, py);
+          ctx.lineTo(px - s * 3, py + 4);
+          ctx.fill();
+        }
+      }
+      // antennae
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s * 6, 24);
+        ctx.quadraticCurveTo(s * 18, -6, s * (34 + Math.sin(t * 5 + s) * 4), -14);
+        ctx.stroke();
+      }
+      // triangle head with bulging eyes and a kung-fu headband
+      ctx.beginPath();
+      ctx.moveTo(-36, 30);
+      ctx.quadraticCurveTo(0, 16, 36, 30);
+      ctx.quadraticCurveTo(16, 64, 0, 72);
+      ctx.quadraticCurveTo(-16, 64, -36, 30);
+      ctx.closePath();
+      paint(ctx, tint('#a6e07a'), 3);
+      const wave = Math.sin(t * 10) * 4;
+      limb([-30, 37, 30, 37], 5, '#ef4b5f');
+      limb([30, 37, 44, 46 + wave, 56, 40 - wave], 4, '#ef4b5f');
+      bigEye(-27, 31, 11);
+      bigEye(27, 31, 11);
+      cheeks(ctx, 0, 52, 14, 4);
+      ctx.beginPath();
+      ctx.moveTo(-5, 61);
+      ctx.lineTo(0, 64 + v.attack * 4);
+      ctx.lineTo(5, 61);
+      paint(ctx, null, 2);
+      break;
+    }
+    case 'bee': {
+      const flap = Math.sin(t * 30);
+      ctx.globalAlpha = 0.65;
+      for (const s of [-1, 1]) {
+        blob(ctx, s * 60, -46, 44, 25 * (0.75 + flap * 0.25), 80 + s, 0.04, s * -0.5);
+        paint(ctx, '#eef9ff', 2.4, '#7fb2d9');
+        blob(ctx, s * 50, -6, 30, 17 * (0.75 - flap * 0.25), 82 + s, 0.04, s * -0.2);
+        paint(ctx, '#eef9ff', 2.4, '#7fb2d9');
+      }
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.moveTo(-8, -86);
+      ctx.lineTo(0, -110 - v.attack * 12);
+      ctx.lineTo(8, -86);
+      ctx.closePath();
+      paint(ctx, '#3a2d45', 2);
+      // striped fuzzy abdomen
+      blob(ctx, 0, -40, 50, 52, 83, 0.04);
+      paint(ctx, tint('#ffd23f'), 0);
+      ctx.save();
+      blob(ctx, 0, -40, 50, 52, 83, 0.04);
+      ctx.clip();
+      ctx.fillStyle = '#3a2d45';
+      for (const yy of [-80, -54, -28]) ctx.fillRect(-60, yy, 120, 13);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(-22, -58, 9, 16, -0.4, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+      blob(ctx, 0, -40, 50, 52, 83, 0.04);
+      paint(ctx, null, 3);
+      blob(ctx, 0, 10, 34, 20, 84, 0.12, 0, 16);
+      paint(ctx, tint('#fff1c2'), 2.6);
+      // tiny arms waving a honey dipper
+      ctx.save();
+      ctx.translate(38, 22);
+      ctx.rotate(-0.5 + Math.sin(t * 4) * 0.3 + v.attack * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -34);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#a8743a';
+      ctx.stroke();
+      blob(ctx, 0, -40, 8, 10, 86, 0.05);
+      paint(ctx, '#ffb84d', 2);
+      ctx.strokeStyle = '#c98a1f';
+      ctx.lineWidth = 1.5;
+      for (const yy of [-44, -40, -36]) {
+        ctx.beginPath();
+        ctx.moveTo(-7, yy);
+        ctx.lineTo(7, yy);
+        ctx.stroke();
+      }
+      ctx.restore();
+      // antennae
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2.4;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s * 10, 18);
+        ctx.quadraticCurveTo(s * 18, 2, s * 26, 6 + Math.sin(t * 6 + s) * 3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(s * 26, 6 + Math.sin(t * 6 + s) * 3, 3.5, 0, TAU);
+        paint(ctx, '#3a2d45', 1.6);
+      }
+      blob(ctx, 0, 42, 32, 28, 85, 0.04);
+      paint(ctx, tint('#ffd23f'), 3);
+      bigEye(-12, 40, 9);
+      bigEye(12, 40, 9);
+      // grumpy brows + frown
+      ctx.beginPath();
+      ctx.moveTo(-21, 27);
+      ctx.lineTo(-6, 31);
+      ctx.moveTo(21, 27);
+      ctx.lineTo(6, 31);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      cheeks(ctx, 0, 54, 20, 5);
+      ctx.beginPath();
+      ctx.arc(0, 64, 6, 1.15 * Math.PI, 1.85 * Math.PI);
+      paint(ctx, null, 2.2);
+      // tiara
+      ctx.beginPath();
+      ctx.moveTo(-14, 18);
+      ctx.lineTo(-16, 4);
+      ctx.lineTo(-7, 11);
+      ctx.lineTo(0, 0);
+      ctx.lineTo(7, 11);
+      ctx.lineTo(16, 4);
+      ctx.lineTo(14, 18);
+      ctx.closePath();
+      paint(ctx, '#ffe8a3', 2);
+      ctx.beginPath();
+      ctx.arc(0, 11, 2.5, 0, TAU);
+      ctx.fillStyle = '#ff7eb6';
+      ctx.fill();
+      break;
+    }
     case 'beetleKing': {
       ctx.strokeStyle = INK;
       ctx.lineWidth = 5;
@@ -1047,6 +1347,22 @@ export function drawBoss(ctx: C, kind: BossKind, x: number, y: number, t: number
       paint(ctx, '#ffd166', 2.4);
       break;
     }
+  }
+  if (angry) {
+    // throbbing anger mark and puffs of steam
+    ctx.font = `${30 + Math.sin(t * 12) * 4}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💢', 62, -58);
+    for (let i = 0; i < 2; i++) {
+      const k = (t * 1.6 + i * 0.5) % 1;
+      ctx.globalAlpha = 0.7 * (1 - k);
+      ctx.beginPath();
+      ctx.arc((i ? 1 : -1) * (46 + k * 18), -70 - k * 50, 9 + k * 10, 0, TAU);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 }

@@ -1,13 +1,13 @@
 import {
-  INK, TAU, TRACK_HALF, drawAccessory, drawAnt, drawBeetle, drawBoss, drawCrumb, drawFood, drawFoot,
-  drawFootShadow, drawGate, drawGround, drawObstacle, drawPowerUp, drawShield, drawSlamZone, makeAntSprites, paint,
-  rrect, setBoil, text,
+  INK, TAU, TRACK_HALF, drawAccessory, drawAnt, drawBeetle, drawBoostPad, drawBoss, drawCrumb, drawFood, drawFoot,
+  drawFootShadow, drawGate, drawGround, drawJar, drawObstacle, drawPowerUp, drawShield, drawSlamZone, makeAntSprites,
+  paint, rrect, setBoil, text,
   type AntSprites, type BossVisual,
 } from './art';
 import type { Sound } from './audio';
 import { BOSSES, THEMES, type CaptainId } from './data';
 import { t, tr } from './i18n';
-import { applyGate, gateGood, gateLabel, revealMystery, type Level, type Squad } from './level';
+import { BOOST_L, BOOST_W, applyGate, gateGood, gateLabel, revealMystery, slotOp, type GateOp, type Level, type Squad } from './level';
 
 export interface RunStats {
   startAnts: number;
@@ -20,6 +20,20 @@ export interface RunStats {
   captain: CaptainId;
 }
 
+/** What happened during a run, for daily quests. */
+export interface RunTally {
+  crumbs: number;
+  mystery: number;
+  squads: number;
+  foods: number;
+  fever: number;
+  counters: number;
+  jars: number;
+  powerups: number;
+  boosts: number;
+  maxAnts: number;
+}
+
 export interface RunResult {
   win: boolean;
   antsLeft: number;
@@ -30,6 +44,7 @@ export interface RunResult {
   stars: number;
   starBonus: number;
   total: number;
+  tally: RunTally;
 }
 
 interface Ant {
@@ -61,6 +76,11 @@ const SMOKE = '#e3d9ee';
 const FEVER_COMBO = 10;
 const POWER_TIME = { shield: 6, magnet: 7, rage: 8 } as const;
 const SLAM_WARN = 1.0;
+const RAGE_WARN = 0.8;
+const DASH_TIME = 1.8;
+const DASH_SPEED = 1.9;
+const MILESTONES = [25, 50, 100, 150, 200, 300, 500, 1000];
+type SlamSide = -1 | 0 | 1;
 
 const buzz = (ms: number | number[]) => {
   try {
@@ -91,20 +111,27 @@ export class Run {
   foodHoney = 0;
   bossHP: number;
   bossMax: number;
-  bossV: BossVisual = { hurt: 0, attack: 0, dead: false };
+  bossV: BossVisual = { hurt: 0, attack: 0, dead: false, rage: false };
   private lastHurt = 0;
   // timed buffs (seconds left)
   shieldT = 0;
   magnetT = 0;
   rageT = 0;
   feverT = 0;
-  // boss slam: side of the arena about to be smashed, and its countdown
-  slam: { side: -1 | 1; t: number; hit: number } | null = null;
+  dashT = 0;
+  // boss slam: side of the arena about to be smashed (0 = the middle), its countdown,
+  // and an optional quick follow-up on another side
+  slam: { side: SlamSide; t: number; hit: number; warn: number; follow: SlamSide | null } | null = null;
   slamCD = 0.6;
   slamCount = 0;
   battle: Squad | null = null;
   tickAcc = 0;
   ended = false;
+  tally: RunTally = { crumbs: 0, mystery: 0, squads: 0, foods: 0, fever: 0, counters: 0, jars: 0, powerups: 0, boosts: 0, maxAnts: 0 };
+  private milestone = 0;
+  private rageBanner = 0;
+  private slotHinted = false;
+  private slotFace = -1;
   private spr: AntSprites;
   private capSpr: AntSprites;
   private goldSpr: AntSprites;
@@ -130,6 +157,8 @@ export class Run {
     for (const a of this.ants) {
       a.pop = 1;
     }
+    this.tally.maxAnts = this.count;
+    while (this.milestone < MILESTONES.length && MILESTONES[this.milestone] <= this.count) this.milestone++;
   }
 
   get stopD() {
@@ -218,6 +247,17 @@ export class Run {
   private addCount(n: number, sx: number, sy: number) {
     this.count = Math.max(0, Math.round(this.count + n));
     this.syncAnts(sx, sy);
+    if (n > 0) this.checkMilestone();
+  }
+
+  /** Celebrate when the swarm first grows past 25, 50, 100... ants. */
+  private checkMilestone() {
+    this.tally.maxAnts = Math.max(this.tally.maxAnts, this.count);
+    if (this.milestone >= MILESTONES.length || this.count < MILESTONES[this.milestone]) return;
+    while (this.milestone < MILESTONES.length && this.count >= MILESTONES[this.milestone]) this.milestone++;
+    this.sound.milestone();
+    this.confetti(this.x, this.d, 20);
+    this.float(this.x, this.d + this.radius + 75, `🐜 ${t('milestone', MILESTONES[this.milestone - 1])}`, '#7ed6ff', 30);
   }
 
   // ------------------------------------------------------------ fx
@@ -265,7 +305,7 @@ export class Run {
     this.targetX = Math.max(-lim, Math.min(lim, this.targetX));
 
     let speed = 0;
-    if (this.phase === 'run') speed = lv.speed;
+    if (this.phase === 'run') speed = lv.speed * (this.dashT > 0 ? DASH_SPEED : 1);
     if (this.phase === 'bossIntro') speed = this.d < this.stopD ? lv.speed : 0;
     this.d = Math.min(this.d + speed * dt, this.phase === 'run' || this.phase === 'bossIntro' ? this.stopD : this.d);
     if (this.phase !== 'win') this.x += (this.targetX - this.x) * Math.min(1, dt * 9);
@@ -276,14 +316,19 @@ export class Run {
     this.magnetT = Math.max(0, this.magnetT - dt);
     this.rageT = Math.max(0, this.rageT - dt);
     this.feverT = Math.max(0, this.feverT - dt);
+    this.dashT = Math.max(0, this.dashT - dt);
+    this.rageBanner = Math.max(0, this.rageBanner - dt);
+    if (this.dashT > 0 && Math.random() < dt * 30) this.poof(this.x + (Math.random() - 0.5) * this.radius * 1.6, this.d - this.radius * 0.8, '#ffffff', 1);
     if (this.feverT > 0 && Math.random() < dt * 10) this.sparkle(this.x + (Math.random() - 0.5) * this.radius * 2, this.d + (Math.random() - 0.5) * this.radius * 2, '#ffd166', 1);
 
     if (this.phase === 'run') {
       this.updatePickups();
+      this.updateBoosts();
       this.updateGates(dt);
       this.updateHazards(dt);
       this.updateSquadContact();
       this.updateFoods();
+      this.updateJars();
       if (this.d >= lv.length - 380) {
         this.phase = 'bossIntro';
         this.phaseT = 0;
@@ -317,6 +362,7 @@ export class Run {
         f.x += Math.sign(f.x || 1) * 60 * dt;
       }
     }
+    for (const j of lv.jars) if (j.open) j.anim += dt;
 
     this.updateAnts(dt, speed);
     this.updateFx(dt);
@@ -373,7 +419,7 @@ export class Run {
 
   private updatePickups() {
     const fever = this.feverT > 0;
-    const R = this.radius + 8 + this.stats.magnet + (this.magnetT > 0 ? 110 : 0) + (fever ? 25 : 0);
+    const R = this.radius + 8 + this.stats.magnet + (this.magnetT > 0 ? 110 : 0) + (fever ? 25 : 0) + (this.dashT > 0 ? 40 : 0);
     const PR = this.radius + 22;
     for (const p of this.lv.powerups) {
       if (p.taken || Math.abs(p.d - this.d) > PR + 10) continue;
@@ -381,6 +427,7 @@ export class Run {
       const dy = p.d - this.d;
       if (dx * dx + dy * dy > PR * PR) continue;
       p.taken = true;
+      this.tally.powerups++;
       if (p.kind === 'shield') this.shieldT = POWER_TIME.shield;
       else if (p.kind === 'magnet') this.magnetT = POWER_TIME.magnet;
       else this.rageT = POWER_TIME.rage;
@@ -395,6 +442,7 @@ export class Run {
       const dy = c.d - this.d;
       if (dx * dx + dy * dy < R * R) {
         c.taken = true;
+        this.tally.crumbs++;
         this.combo++;
         this.comboT = fever ? 1.2 : 0.7;
         const gain = c.value * (fever ? 2 : 1);
@@ -406,6 +454,7 @@ export class Run {
         if (this.combo % FEVER_COMBO === 0) {
           // Fever: double ants per crumb, longer combo window, bigger pickup reach.
           this.feverT = 5;
+          this.tally.fever++;
           this.sound.fever();
           buzz([20, 40, 20]);
           this.confetti(this.x, this.d, 30);
@@ -423,13 +472,33 @@ export class Run {
         g.used += dt;
         continue;
       }
+      if (g.slot && g.d - this.d < 340) {
+        // tick-tock as the reel flips, so the timing can be heard as well as seen
+        const face = Math.floor(this.time / g.slot.period);
+        if (face !== this.slotFace) {
+          this.slotFace = face;
+          this.sound.tick();
+        }
+        if (!this.slotHinted) {
+          this.slotHinted = true;
+          this.float(g.slot.side * TRACK_HALF * 0.5, g.d + 60, t('slotHint'), '#fff', 20);
+        }
+      }
       if (this.d < g.d) continue;
       g.chosen = this.x < 0 ? -1 : 1;
       g.used = 0.001;
+      if (g.slot) {
+        // the reel stops on whatever face is showing right now
+        const face = slotOp(g.slot, this.time);
+        if (g.slot.side < 0) g.left = face;
+        else g.right = face;
+        g.slot = undefined;
+      }
       let op = g.chosen < 0 ? g.left : g.right;
       const before = this.count;
       const mystery = op.op === '?';
       if (mystery) {
+        this.tally.mystery++;
         op = revealMystery(before, Math.random);
         if (g.chosen < 0) g.left = op;
         else g.right = op;
@@ -469,12 +538,14 @@ export class Run {
           const d2 = dx * dx + dy * dy;
           if (d2 >= rr || a.inv > 0) continue;
           const shielded = this.shieldT > 0;
-          if (shielded || Math.random() < st.dodge) {
+          if (shielded || this.dashT > 0 || Math.random() < st.dodge) {
             const l = Math.sqrt(d2) || 1;
             a.x = cx + (dx / l) * (c.r + 6);
             a.y = cy + (dy / l) * (c.r + 6);
             a.inv = 0.5;
-            if (shielded) {
+            if (this.dashT > 0) {
+              /* dashing ants just bounce off */
+            } else if (shielded) {
               if (Math.random() < 0.15) {
                 this.float(a.x, a.y + 10, t('blocked'), '#7ed6ff', 14);
                 this.sound.block();
@@ -504,7 +575,7 @@ export class Run {
         this.shake = 16;
         buzz(80);
         this.poof(s.x, s.d, '#c7b3ff', 18);
-        if (this.shieldT > 0) {
+        if (this.shieldT > 0 || this.dashT > 0) {
           this.float(s.x, s.d + 40, t('blocked'), '#7ed6ff', 22);
           this.sound.block();
           continue;
@@ -565,6 +636,7 @@ export class Run {
     if (s.hp <= 0) {
       s.dead = true;
       s.hp = 0;
+      this.tally.squads++;
       this.fightHoney += s.reward;
       this.float(s.x, s.d + 30, `+${s.reward} 🍯`, '#ffd166', 24);
       this.sparkle(s.x, s.d, '#c7b3ff', 16);
@@ -583,6 +655,7 @@ export class Run {
       if (dx * dx + dy * dy > (R + f.r) * (R + f.r)) continue;
       if (this.count >= f.need) {
         f.state = 'carried';
+        this.tally.foods++;
         this.addCount(-f.carriers, f.x, f.d);
         this.foodHoney += f.value;
         this.sound.carry();
@@ -596,9 +669,41 @@ export class Run {
     }
   }
 
+  private updateJars() {
+    const R = this.radius + 24;
+    for (const j of this.lv.jars) {
+      if (j.open) continue;
+      const dx = j.x - this.x;
+      const dy = j.d - this.d;
+      if (dx * dx + dy * dy > R * R) continue;
+      j.open = true;
+      this.tally.jars++;
+      this.addCount(j.n, j.x, j.d);
+      this.sound.rescue();
+      buzz([20, 30, 20]);
+      this.confetti(j.x, j.d, 26);
+      this.sparkle(j.x, j.d, '#b5f27a', 14);
+      this.float(j.x, j.d + 50, t('rescue', j.n), '#b5f27a', 24);
+    }
+  }
+
+  private updateBoosts() {
+    for (const b of this.lv.boosts) {
+      if (b.used || this.d < b.d || this.d > b.d + BOOST_L) continue;
+      if (Math.abs(this.x - b.x) > BOOST_W / 2 + this.radius * 0.4) continue;
+      b.used = true;
+      this.dashT = DASH_TIME;
+      this.tally.boosts++;
+      this.sound.dash();
+      buzz(40);
+      this.shake = 5;
+      this.float(this.x, this.d + this.radius + 50, `⚡ ${t('dash')}`, '#7ed6ff', 30);
+    }
+  }
+
   private updateBoss(dt: number) {
     // Slower than a squad fight so there is time to dodge the boss's slams.
-    const rate = Math.max(8, (this.count + this.bossHP) / 7);
+    const rate = Math.max(8, (this.count + this.bossHP) / 9);
     this.tickAcc += dt * rate;
     while (this.tickAcc >= 1 && this.bossHP > 0 && this.count > 0) {
       this.tickAcc -= 1;
@@ -614,24 +719,38 @@ export class Run {
       this.sound.hit();
     }
     this.updateSlam(dt);
+    if (!this.bossV.rage && this.bossHP > 0 && this.bossHP <= this.bossMax * 0.5) {
+      // Second phase: faster slams, middle smashes and one-two combos.
+      this.bossV.rage = true;
+      this.sound.roar();
+      this.shake = 12;
+      buzz([30, 30, 60]);
+      this.rageBanner = 1.8;
+      this.slamCD = Math.min(this.slamCD, 0.5);
+    }
     if (this.bossHP <= 0 && this.count > 0) this.win();
   }
 
-  /** Arena x-range a slam on `side` covers; the middle strip stays safe. */
-  slamRange(side: -1 | 1): [number, number] {
+  /** Arena x-range a slam on `side` covers: a side slam spares the middle strip, a middle slam spares both edges. */
+  slamRange(side: SlamSide): [number, number] {
+    if (side === 0) return [-50, 50];
     return side < 0 ? [-TRACK_HALF, -22] : [22, TRACK_HALF];
   }
 
   private updateSlam(dt: number) {
+    const rage = this.bossV.rage;
     if (this.slam) {
       const sl = this.slam;
       if (sl.hit > 0) {
         sl.hit -= dt;
-        if (sl.hit <= 0) this.slam = null;
+        if (sl.hit <= 0) {
+          this.slam = sl.follow === null ? null : { side: sl.follow, t: 0, hit: 0, warn: 0.65, follow: null };
+          if (this.slam) this.sound.warn();
+        }
         return;
       }
       sl.t += dt;
-      if (sl.t < SLAM_WARN) return;
+      if (sl.t < sl.warn) return;
       // SMASH
       sl.hit = 0.3;
       this.bossV.attack = 1;
@@ -642,9 +761,11 @@ export class Run {
       for (let i = 0; i < 10; i++) this.poof(x0 + Math.random() * (x1 - x0), this.bossCy + (Math.random() - 0.5) * 120, SMOKE, 2);
       const inZone = this.ants.filter((a) => a.x > x0 && a.x < x1).length;
       const frac = this.ants.length ? inZone / this.ants.length : 0;
-      if (frac === 0 || this.shieldT > 0) {
+      // A clean dodge (a couple of stragglers is fine) earns a counter-attack.
+      if (frac < 0.05 || this.shieldT > 0) {
         const dmg = Math.max(2, Math.round(this.bossMax * 0.07 * (this.rageT > 0 ? 1.5 : 1)));
         this.bossHP -= dmg;
+        this.tally.counters++;
         this.bossV.hurt = 1;
         this.sound.counter();
         this.float(0, this.bossD - 60, `${t('counter')} -${dmg}`, '#ffd166', 30);
@@ -655,14 +776,20 @@ export class Run {
         this.addCount(-lost, this.bossCx, this.bossCy);
         this.float((x0 + x1) / 2, this.bossCy + 40, `${t('ouch')} -${lost}`, '#ff8a80', 24);
       }
-      this.slamCD = 0.7 + Math.random() * 0.5;
+      this.slamCD = rage ? 0.45 + Math.random() * 0.35 : 0.7 + Math.random() * 0.5;
       return;
     }
     this.slamCD -= dt;
     if (this.slamCD > 0) return;
     // Aim at the side holding most of the swarm, so the player has to move.
-    const side: -1 | 1 = Math.abs(this.bossCx) < 12 ? (Math.random() < 0.5 ? -1 : 1) : this.bossCx < 0 ? -1 : 1;
-    this.slam = { side, t: 0, hit: 0 };
+    let side: SlamSide = Math.abs(this.bossCx) < 12 ? (Math.random() < 0.5 ? -1 : 1) : this.bossCx < 0 ? -1 : 1;
+    let follow: SlamSide | null = null;
+    if (rage) {
+      const k = Math.random();
+      if (Math.abs(this.bossCx) < 45 && k < 0.6) side = 0; // hiding in the middle stops working
+      else if (k < 0.35) follow = side < 0 ? 1 : -1; // one-two: this side, then the other
+    }
+    this.slam = { side, t: 0, hit: 0, warn: rage ? RAGE_WARN : SLAM_WARN, follow };
     this.sound.warn();
     if (this.slamCount++ === 0) this.float(0, this.bossCy + 80, t('bossDodge'), '#fff', 20);
   }
@@ -696,6 +823,7 @@ export class Run {
       stars,
       starBonus,
       total: Math.round(base * st.honeyMult),
+      tally: { ...this.tally },
     };
   }
 
@@ -718,6 +846,7 @@ export class Run {
       stars: 0,
       starBonus: 0,
       total: Math.round(base * this.stats.honeyMult),
+      tally: { ...this.tally },
     };
   }
 
@@ -769,12 +898,13 @@ export class Run {
     // boss arena line
     if (vis(this.stopD + 40)) this.drawRibbon(ctx, Y(this.stopD + 40), '#ff7eb6', 'BOSS');
 
+    for (const b of lv.boosts) if (vis(b.d, 120)) drawBoostPad(ctx, b.x, Y(b.d), BOOST_W, BOOST_L, tm, b.used);
     for (const c of lv.crumbs) if (!c.taken && vis(c.d)) drawCrumb(ctx, c.kind, c.x, Y(c.d), c.seed, tm);
     for (const p of lv.powerups) if (!p.taken && vis(p.d)) drawPowerUp(ctx, p.kind, p.x, Y(p.d), p.seed, tm);
 
     if (this.slam) {
       const [x0, x1] = this.slamRange(this.slam.side);
-      drawSlamZone(ctx, x0, x1, Y(this.bossD - 30), Y(this.stopD - 100), Math.min(1, this.slam.t / SLAM_WARN), tm, this.slam.hit > 0);
+      drawSlamZone(ctx, x0, x1, Y(this.bossD - 30), Y(this.stopD - 100), Math.min(1, this.slam.t / this.slam.warn), tm, this.slam.hit > 0);
     }
 
     for (const f of lv.foods) {
@@ -794,6 +924,21 @@ export class Run {
       }
     }
 
+    for (const j of lv.jars) {
+      if (!vis(j.d, 120) || j.anim > 0.5) continue;
+      drawJar(ctx, j.x, Y(j.d), j.seed, tm, j.anim, () => {
+        if (j.open) return;
+        for (let i = 0; i < Math.min(5, j.n); i++) {
+          // prisoners hopping and waving for help
+          const a = i * GOLDEN;
+          const r = 4 + i * 2.6;
+          const hop = Math.abs(Math.sin(tm * 8 + i * 1.7)) * 4;
+          drawAnt(ctx, this.spr, Math.cos(a) * r * 1.2, 6 + Math.sin(a) * r - hop, Math.sin(tm * 5 + i) * 0.4, 15, Math.floor(tm * 10 + i));
+        }
+      });
+      if (!j.open) this.badge(ctx, j.x, Y(j.d) - 50, `🐜+${j.n}`, '#3fa35a', 15);
+    }
+
     for (const s of lv.stomps) {
       if ((s.state === 'warn' || s.state === 'down') && vis(s.d, 150)) {
         const k = s.state === 'warn' ? Math.min(1, s.timer / 1.15) : 1;
@@ -811,9 +956,14 @@ export class Run {
       if (!vis(g.d, 60)) continue;
       const gy = Y(g.d);
       const w = TRACK_HALF;
-      const look = (op: typeof g.left) => (op.op === '?' ? 'mystery' : gateGood(op));
-      if (g.chosen !== -1 || g.used < 0.6) drawGate(ctx, -w / 2, gy, w, gateLabel(g.left), look(g.left), g.chosen === -1 ? g.used : 0, tm, g.d);
-      if (g.chosen !== 1 || g.used < 0.6) drawGate(ctx, w / 2, gy, w, gateLabel(g.right), look(g.right), g.chosen === 1 ? g.used : 0, tm, g.d + 1);
+      const look = (op: GateOp) => (op.op === '?' ? 'mystery' : gateGood(op));
+      const slot = g.slot;
+      const face = (side: -1 | 1) => (slot?.side === side ? slotOp(slot, tm) : side < 0 ? g.left : g.right);
+      const reel = (side: -1 | 1) => (slot?.side === side ? (tm / slot.period) % 1 : -1);
+      const L = face(-1);
+      const R = face(1);
+      if (g.chosen !== -1 || g.used < 0.6) drawGate(ctx, -w / 2, gy, w, gateLabel(L), look(L), g.chosen === -1 ? g.used : 0, tm, g.d, reel(-1));
+      if (g.chosen !== 1 || g.used < 0.6) drawGate(ctx, w / 2, gy, w, gateLabel(R), look(R), g.chosen === 1 ? g.used : 0, tm, g.d + 1, reel(1));
       // centre post
       rrect(ctx, -6, gy - 30, 12, 60, 5, g.d, 0.5);
       paint(ctx, '#fff', 2.2);
@@ -958,6 +1108,24 @@ export class Run {
   private renderHud(ctx: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const u = Math.max(0.8, Math.min(1.3, W / 420));
+    if (this.dashT > 0) {
+      // speed lines streaking past
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.dashT / 0.4) * 0.55;
+      ctx.strokeStyle = '#fff';
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 18; i++) {
+        const lx = ((i * 0.618034) % 1) * W;
+        const len = 50 + ((i * 0.37) % 1) * 90;
+        const ly = ((i * 137.5 + this.time * 1500) % (H + 200)) - 100;
+        ctx.lineWidth = 2 + (i % 3);
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(lx, ly + len);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     // progress bar
     const bw = Math.min(W * 0.5, 320);
     const bx = W / 2 - bw / 2;
@@ -981,6 +1149,7 @@ export class Run {
     // active buffs
     const buffs: [string, number, number, string][] = [
       ['🔥', this.feverT, 5, '#ffd166'],
+      ['⚡', this.dashT, DASH_TIME, '#7ed6ff'],
       ['🛡️', this.shieldT, POWER_TIME.shield, '#7ed6ff'],
       ['🧲', this.magnetT, POWER_TIME.magnet, '#ff7eb6'],
       ['💢', this.rageT, POWER_TIME.rage, '#ffb347'],
@@ -1033,6 +1202,16 @@ export class Run {
       text(ctx, t('bossTime'), 0, 0, 40 * u, '#ff7eb6', INK);
       ctx.restore();
       if (this.lv.num <= 4 || this.lv.daily) wrapText(ctx, t('tipBoss'), W / 2, H * 0.3 + 50 * u, Math.min(W - 40, 380), 16 * u);
+    }
+    if (this.rageBanner > 0) {
+      const k = Math.min(1, (1.8 - this.rageBanner) * 4);
+      ctx.save();
+      ctx.translate(W / 2 + Math.sin(this.time * 50) * 2 * this.rageBanner, H * 0.25);
+      ctx.rotate(0.05);
+      ctx.scale(k, k);
+      ctx.globalAlpha = Math.min(1, this.rageBanner * 2);
+      text(ctx, `💢 ${t('bossRage')}`, 0, 0, 34 * u, '#ff5d6c', INK);
+      ctx.restore();
     }
     if (this.phase === 'win') {
       const k = Math.min(1, this.phaseT * 3);

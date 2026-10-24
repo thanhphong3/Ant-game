@@ -175,6 +175,22 @@ export class Sound {
   buy() {
     [0, 7, 12].forEach((n, i) => this.tone(NOTE(76 + n), 0.1, 'triangle', 0.08, undefined, i * 0.05));
   }
+  rescue() {
+    // a chorus of tiny happy chirps
+    for (let i = 0; i < 6; i++) this.tone(1200 + Math.random() * 900, 0.06, 'triangle', 0.05, 2200, i * 0.05);
+    [0, 4, 7, 12].forEach((n, i) => this.tone(NOTE(76 + n), 0.12, 'square', 0.05, undefined, 0.1 + i * 0.06));
+  }
+  dash() {
+    this.noise(0.45, 0.16, 1200, 'bandpass');
+    this.tone(300, 0.4, 'sawtooth', 0.06, 1400);
+  }
+  milestone() {
+    [0, 4, 7, 12, 16].forEach((n, i) => this.tone(NOTE(72 + n), 0.1, 'triangle', 0.08, undefined, i * 0.05));
+    this.tone(NOTE(96), 0.3, 'sine', 0.05, undefined, 0.25);
+  }
+  tick() {
+    this.tone(1800, 0.025, 'square', 0.03);
+  }
 
   setMusic(mode: Mode) {
     if (mode === this.mode) return;

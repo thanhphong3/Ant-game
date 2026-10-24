@@ -5,7 +5,11 @@ import { irange, mulberry32, pick, range, type Rng } from './rng';
 
 export interface Crumb { kind: CrumbKind; x: number; d: number; value: number; taken: boolean; seed: number }
 export interface GateOp { op: '+' | '-' | 'x' | '/' | '?'; v: number }
-export interface Gate { d: number; left: GateOp; right: GateOp; used: number; chosen: 0 | -1 | 1 }
+export interface Gate {
+  d: number; left: GateOp; right: GateOp; used: number; chosen: 0 | -1 | 1;
+  /** Slot gate: one side keeps flipping through `ops`; whatever shows when the swarm walks in sticks. */
+  slot?: { side: -1 | 1; ops: GateOp[]; period: number };
+}
 export interface Collider { dx: number; dy: number; r: number }
 export interface Obstacle {
   kind: ObstacleKind; x: number; d: number; seed: number; flip: number; colliders: Collider[];
@@ -18,6 +22,10 @@ export interface Food {
 }
 export type PowerKind = 'shield' | 'magnet' | 'rage';
 export interface PowerUp { kind: PowerKind; x: number; d: number; taken: boolean; seed: number }
+/** A glass jar of trapped ants: touch it to free them. */
+export interface Jar { x: number; d: number; n: number; open: boolean; anim: number; seed: number }
+/** Arrow pad on the floor: running over it starts a short invincible dash. */
+export interface Boost { x: number; d: number; used: boolean }
 export interface Stomp { x: number; d: number; trigger: number; state: 'wait' | 'warn' | 'down' | 'up' | 'done'; timer: number }
 
 export interface Level {
@@ -35,7 +43,14 @@ export interface Level {
   foods: Food[];
   stomps: Stomp[];
   powerups: PowerUp[];
+  jars: Jar[];
+  boosts: Boost[];
 }
+
+export const BOOST_W = 76;
+export const BOOST_L = 84;
+export type Slot = NonNullable<Gate['slot']>;
+export const slotOp = (s: Slot, time: number) => s.ops[Math.floor(time / s.period) % s.ops.length];
 
 export const gateLabel = (g: GateOp) => (g.op === '?' ? '?' : (g.op === '+' ? '+' : g.op === '-' ? '−' : g.op === 'x' ? '×' : '÷') + g.v);
 export const gateGood = (g: GateOp) => g.op === '+' || g.op === 'x';
@@ -75,13 +90,15 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
     boss: BOSSES[(num - 1) % BOSSES.length].kind,
     bossHP: 0,
     speed: 150 + Math.min(num, 25) * 3,
-    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [],
+    crumbs: [], gates: [], obstacles: [], squads: [], foods: [], stomps: [], powerups: [], jars: [], boosts: [],
   };
   let est = 10 + Math.min(num, 40) * 0.7;
   let d = 380;
   let lastType = '';
   let seedN = 1;
-  let mysteryLeft = num >= 2 ? 1 : 0; // guarantee one ❓ gate per level from level 2
+  let mysteryLeft = num >= 2 ? 1 : 0; // aim for one ❓ gate per level from level 2
+  // Every level from 2 on also features one of the newer set pieces, in rotation.
+  let feature: '' | 'slot' | 'jar' | 'boost' = num < 2 ? '' : num === 2 ? 'jar' : (['slot', 'jar', 'boost'] as const)[num % 3];
 
   const crumbLine = (x0: number, x1: number, d0: number, n: number, shape: 'line' | 'zig' | 'arc') => {
     for (let i = 0; i < n; i++) {
@@ -100,13 +117,15 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
   const types: [string, number, number][] = [
     // [type, weight, min level]
     ['crumbs', 3, 1], ['gate', 4, 1], ['obstacle', 2, 1], ['squad', 2, 2],
-    ['food', 1.2, 1], ['stomp', 1.2, 3], ['pea', 1, 2],
+    ['food', 1.2, 1], ['stomp', 1.2, 3], ['pea', 1, 2], ['jar', 1, 2], ['boost', 0.9, 3],
   ];
 
   while (d < length - 450) {
     let type = weightedPick(r, types.filter((t) => num >= t[2]));
     if (type === lastType && type !== 'crumbs') type = 'crumbs';
+    if (feature && d >= 1000) type = feature === 'slot' ? 'gate' : feature;
     if (d < 900) type = d < 600 ? 'crumbs' : 'gate'; // gentle opening: always grow first
+    if (type === feature) feature = '';
     lastType = type;
     switch (type) {
       case 'crumbs': {
@@ -115,10 +134,22 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         break;
       }
       case 'gate': {
-        const g = makeGate(r, num, est, d < 900, mysteryLeft > 0);
+        const wantSlot = num >= 3 && d >= 900 && (feature === 'slot' || r() < 0.25);
+        const g = makeGate(r, num, est, d < 900, mysteryLeft > 0 && !wantSlot);
         if (g[0].op === '?' || g[1].op === '?') mysteryLeft--;
-        lv.gates.push({ d: d + 120, left: g[0], right: g[1], used: 0, chosen: 0 });
-        const best = Math.max(applyGate(est, g[0]), applyGate(est, g[1]));
+        const gate: Gate = { d: d + 120, left: g[0], right: g[1], used: 0, chosen: 0 };
+        let best = Math.max(applyGate(est, g[0]), applyGate(est, g[1]));
+        if (wantSlot && g[0].op !== '?' && g[1].op !== '?') {
+          if (feature === 'slot') feature = '';
+          // Slot gate: timing the walk-in turns a gamble into skill.
+          const side: -1 | 1 = r() < 0.5 ? -1 : 1;
+          const ops = makeSlot(r, num, est);
+          gate.slot = { side, ops, period: num < 8 ? 0.6 : 0.5 };
+          if (side < 0) gate.left = ops[0];
+          else gate.right = ops[0];
+          best = Math.max(applyGate(est, side < 0 ? g[1] : g[0]), applyGate(est, ops[2]));
+        }
+        lv.gates.push(gate);
         est = Math.max(6, best * 0.85);
         crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d - 20, irange(r, 3, 5), 'line');
         break;
@@ -171,6 +202,25 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
         crumbLine(-side * 100, -side * 100, d + 40, irange(r, 5, 8), 'line');
         break;
       }
+      case 'jar': {
+        // Trapped ants on one side, guarded by a hazard you have to weave around.
+        const side = r() < 0.5 ? -1 : 1;
+        const n = Math.max(5, Math.round(est * range(r, 0.3, 0.5)));
+        const jx = side * range(r, 95, 140);
+        lv.jars.push({ x: jx, d: d + 190, n, open: false, anim: 0, seed: seedN++ });
+        lv.obstacles.push(makeObstacle(r, pick(r, ['tack', 'button', 'peel'] as const), jx - side * range(r, 0, 40), d + 70, seedN++));
+        crumbLine(-side * 100, -side * 60, d, irange(r, 5, 8), 'line');
+        est += n * 0.6;
+        break;
+      }
+      case 'boost': {
+        const bx = range(r, -H + 70, H - 70);
+        lv.boosts.push({ x: bx, d: d + 30, used: false });
+        // a long trail the dash hoovers up
+        crumbLine(bx, clampX(bx + range(r, -60, 60), 30), d + 150, irange(r, 10, 14), 'zig');
+        est += 6;
+        break;
+      }
       case 'stomp': {
         lv.stomps.push({ x: 0, d: d + 160, trigger: d + 160, state: 'wait', timer: 0 });
         crumbLine(range(r, -H + 30, H - 30), range(r, -H + 30, H - 30), d, irange(r, 8, 12), 'zig');
@@ -213,6 +263,17 @@ function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: 
   else if (k < 0.9) pair = [good(), good()];
   else pair = [bad(), bad()];
   return r() < 0.5 ? pair : [pair[1], pair[0]];
+}
+
+function makeSlot(r: Rng, num: number, est: number): GateOp[] {
+  // Alternate treats and tricks so a careless walk-in is a coin flip.
+  const big = Math.max(6, Math.round(est * range(r, 0.4, 0.7)));
+  return [
+    { op: 'x', v: num >= 10 && r() < 0.3 ? 3 : 2 },
+    { op: '-', v: Math.max(4, Math.round(est * 0.45)) },
+    { op: '+', v: big },
+    { op: '/', v: 2 },
+  ];
 }
 
 function makeObstacle(r: Rng, kind: ObstacleKind, x: number, d: number, seed: number): Obstacle {

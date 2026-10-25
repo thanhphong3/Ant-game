@@ -1,10 +1,10 @@
 import './style.css';
 import { drawAccessory, drawAnt, drawCrumb, drawGround, makeAntSprites, setBoil, type AntSprites } from './art';
 import { Sound } from './audio';
-import { CAPTAINS, THEMES, UPGRADES, chapterDef, chapterOf, upgradeCost, type CaptainId } from './data';
-import { Run, type RunResult, type RunStats } from './game';
+import { CAPTAINS, THEMES, UPGRADES, chapterDef, chapterOf, upgradeCost, upgradeStats, type CaptainId } from './data';
+import { Run, comfort, type RunResult, type RunStats } from './game';
 import { getLang, setLang, t, tr } from './i18n';
-import { generateLevel, isFinale, isHardLevel, type Level } from './level';
+import { generateLevel, isFinale, isHardLevel, mercyHP, type Level } from './level';
 import { ACHIEVEMENTS, SKINS, STARS_PER_CHEST, achReady, chestReward, skinColor } from './meta';
 import { bonusReady, claimable, makeQuests, questDef, trackQuests } from './quests';
 import { hashString } from './rng';
@@ -20,6 +20,8 @@ setLang(save.lang);
 const sound = new Sound();
 sound.sfxOn = save.sfx;
 sound.musicOn = save.music;
+comfort.shake = save.shake;
+comfort.haptics = save.haptics;
 
 let W = 0;
 let H = 0;
@@ -114,20 +116,7 @@ function countUp(el: HTMLElement, from: number, to: number, ms: number) {
 const levelName = (n: number) => `${t('level')} ${n}${isHardLevel(n) ? ' 💀' : ''}`;
 
 function stats(): RunStats {
-  const u = save.upgrades;
-  const c = save.captain;
-  return {
-    startAnts: 8 + u.colony * 2 + (c === 'hat' ? 4 : 0),
-    power: 1 + u.power * 0.1 + (c === 'knight' ? 0.3 : 0),
-    magnet: (6 + u.magnet * 7) * (c === 'astro' ? 1.6 : 1),
-    // ants bounce off hazards 15% of the time even without upgrades
-    dodge: Math.min(0.85, 0.15 + u.armor * 0.04 + (c === 'ninja' ? 0.2 : 0)),
-    honeyMult: 1 + u.honey * 0.1 + (c === 'king' ? 0.3 : 0),
-    plusBoost: c === 'chubby' ? 1.25 : 1,
-    crumbHoneyMult: c === 'dj' ? 2 : 1,
-    captain: c,
-    skin: skinColor(save.skin),
-  };
+  return { ...upgradeStats(save.upgrades, save.captain), skin: skinColor(save.skin) };
 }
 
 // The v1.4 rebalance made upgrades pricier. Saves from before it get every bit of honey
@@ -587,7 +576,7 @@ function questScreen() {
 }
 
 function settingsScreen() {
-  const toggle = (on: boolean, f: () => void) => btn(on ? `🔊 ${t('on')}` : `🔇 ${t('off')}`, `small ${on ? 'sky' : 'white'}`, f);
+  const toggle = (on: boolean, f: () => void, icons = ['🔊', '🔇']) => btn(on ? `${icons[0]} ${t('on')}` : `${icons[1]} ${t('off')}`, `small ${on ? 'sky' : 'white'}`, f);
   show(
     h('div', { class: 'screen' },
       h('div', { class: 'panel' },
@@ -612,10 +601,22 @@ function settingsScreen() {
           persist();
           settingsScreen();
         })),
+        h('div', { class: 'setting' }, t('shakeOpt'), toggle(save.shake, () => {
+          save.shake = comfort.shake = !save.shake;
+          persist();
+          settingsScreen();
+        }, ['💥', '⬜'])),
+        h('div', { class: 'setting' }, t('hapticsOpt'), toggle(save.haptics, () => {
+          save.haptics = comfort.haptics = !save.haptics;
+          persist();
+          if (save.haptics) navigator.vibrate?.(40);
+          settingsScreen();
+        }, ['📳', '📴'])),
         h('div', { class: 'setting' }, `📊 ${t('stats')}`, btn('▶', 'small sky', statsScreen)),
         h('div', { class: 'setting' }, '', btn(`🗑 ${t('reset')}`, 'small pink', () => {
           if (confirm(t('resetConfirm'))) {
             save = resetSave();
+            comfort.shake = comfort.haptics = true;
             menuScreen();
           }
         })),
@@ -643,8 +644,7 @@ function startRun(daily: boolean, level = save.level) {
     ? generateLevel(8, hashString('daily-' + key), hashString(key) % THEMES.length)
     : generateLevel(level, hashString('level-' + level));
   lv.daily = daily;
-  // Mercy rule: every failed attempt shaves 8% off the boss (down to 60%).
-  if (!daily && level === save.level) lv.bossHP = Math.max(8, Math.round(lv.bossHP * Math.max(0.6, 1 - save.fails * 0.08)));
+  if (!daily && level === save.level) lv.bossHP = mercyHP(lv.bossHP, save.fails);
   sound.party = save.captain === 'dj';
   run = new Run(lv, stats(), sound, onRunEnd);
   run.coach = !daily && !save.tutorial && level <= 2;

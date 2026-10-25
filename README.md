@@ -37,6 +37,8 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 - 📸 Nút **Khoe** ở màn thắng: tạo ảnh chiến thắng để chia sẻ qua Zalo/Messenger (hoặc tải về).
 - 📲 **Cài ra màn hình chính** như app và **chơi được khi mất mạng** (PWA).
 - 📊 **Thống kê** trong ⚙️: tỉ lệ thắng, màn khó nhất, số lần thử từng màn.
+- 🔈 Mỗi tuyệt chiêu của trùm có **tiếng riêng** (ếch "ộp ộp" rồi "chụt", ong vo ve, động đất ầm ầm…) để nhận ra đòn bằng tai.
+- ⚙️ Tùy chọn **tắt rung màn hình** và **tắt rung máy**.
 - 🎁 Người chơi cũ được **hoàn lại toàn bộ mật** đã tiêu cho nâng cấp (theo giá cũ) để nâng cấp lại theo giá mới.
 
 ## Tính năng / Features
@@ -55,7 +57,12 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # output in dist/
+npm run balance  # bots play 30 levels and report win rates (add -- --quick to skip the per-level sweep)
 ```
+
+`npm run balance` needs Playwright's Chromium once: `npx playwright install chromium`.
+Use it after any tuning change (boss HP in `bossRatio`, upgrade prices, hazards…): a good bot should
+win roughly 70–80% of runs in the campaign and a casual one 55–65%.
 
 Tech: TypeScript + Vite + Canvas 2D.
 

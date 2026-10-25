@@ -105,7 +105,11 @@ export interface Slam {
   dmg?: number;
 }
 
+/** Comfort settings: screen shake and phone vibration can be switched off. */
+export const comfort = { shake: true, haptics: true };
+
 const buzz = (ms: number | number[]) => {
+  if (!comfort.haptics) return;
   try {
     navigator.vibrate?.(ms);
   } catch {
@@ -1052,7 +1056,8 @@ export class Run {
       sl.hit = 0.3;
       this.bossV.attack = 1;
       this.shake = 16;
-      this.sound.slam();
+      if (sl.icon) this.sound.moveHit(this.lv.boss);
+      else this.sound.slam();
       buzz(90);
       const inside = (x: number) => sl.zones.some(([x0, x1]) => x > x0 && x < x1);
       for (const [x0, x1] of sl.zones) for (let i = 0; i < 6; i++) this.poof(x0 + Math.random() * (x1 - x0), this.bossCy + (Math.random() - 0.5) * 120, SMOKE, 2);
@@ -1089,7 +1094,7 @@ export class Run {
       this.slam = this.signature();
       const mv = BOSS_MOVES[this.lv.boss];
       this.bossLine = { s: `${mv.icon} ${tr(mv.name)}!`, life: 0 };
-      this.sound.roar();
+      this.sound.move(this.lv.boss);
       if (!this.moveHinted) {
         this.moveHinted = true;
         this.float(0, this.bossCy + 80, tr(mv.hint), '#fff', 18);
@@ -1235,8 +1240,9 @@ export class Run {
   render(ctx: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
     const scale = (this.scale = Math.min(W / 430, H / 660));
     const baseY = H * 0.7;
-    const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
-    const sy = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
+    const shake = comfort.shake ? this.shake : 0;
+    const sx = shake > 0 ? (Math.random() - 0.5) * shake : 0;
+    const sy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (W / 2 + sx), dpr * (baseY + sy));
     const cam = this.camD;
     const Y = (d: number) => -(d - cam);

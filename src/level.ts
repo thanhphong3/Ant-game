@@ -308,6 +308,8 @@ export function generateLevel(num: number, seed: number, themeOverride?: number)
  * fighting power of a player who keeps upgrading.
  */
 export const isHardLevel = (num: number) => num % 5 === 0;
+/** Mercy rule: every failed attempt shaves 8% off the boss (down to 60%). */
+export const mercyHP = (hp: number, fails: number) => Math.max(8, Math.round(hp * Math.max(0.6, 1 - fails * 0.08)));
 /** Every 10th level closes a chapter with a crowned boss. */
 export const isFinale = (num: number) => num % 10 === 0;
 export function bossRatio(num: number) {

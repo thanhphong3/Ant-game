@@ -172,6 +172,71 @@ export class Sound {
     src.stop(t0 + dur + 0.02);
   }
 
+  private nz(dur: number, vol: number, freq: number, type: BiquadFilterType, delay: number) {
+    if (this.ctx) this.noise(dur, vol, freq, type, this.ctx.currentTime + delay);
+  }
+
+  /** Wind-up cue for a boss's signature move, so each one can be told apart by ear. */
+  move(kind: string) {
+    switch (kind) {
+      case 'spider': // creaky web unspooling
+        this.tone(1500, 0.6, 'triangle', 0.06, 260);
+        for (let i = 0; i < 5; i++) this.tone(2400 - i * 300, 0.05, 'sine', 0.04, undefined, i * 0.1);
+        break;
+      case 'frog': // ribbit-ribbit, then a slurp
+        this.tone(190, 0.12, 'square', 0.1, 120);
+        this.tone(210, 0.12, 'square', 0.1, 130, 0.17);
+        this.tone(300, 0.35, 'sine', 0.08, 1500, 0.38);
+        break;
+      case 'lizard': // three hissing beats
+        for (let i = 0; i < 3; i++) this.nz(0.14, 0.14, 5000, 'highpass', i * 0.16);
+        break;
+      case 'mantis': // two blades sharpened
+        this.nz(0.25, 0.12, 7000, 'bandpass', 0);
+        this.tone(2600, 0.25, 'sawtooth', 0.03, 3600);
+        this.nz(0.25, 0.12, 7000, 'bandpass', 0.28);
+        this.tone(2600, 0.25, 'sawtooth', 0.03, 3600, 0.28);
+        break;
+      case 'bee': // angry buzzing swarm
+        this.tone(210, 0.8, 'sawtooth', 0.06, 260);
+        this.tone(216, 0.8, 'sawtooth', 0.05, 250);
+        break;
+      default: // beetle king: the ground starts to rumble
+        this.tone(55, 1.0, 'sine', 0.35, 40);
+        this.nz(1.0, 0.2, 160, 'lowpass', 0);
+        break;
+    }
+  }
+
+  /** The impact of a signature move. */
+  moveHit(kind: string) {
+    switch (kind) {
+      case 'spider':
+        this.tone(500, 0.2, 'triangle', 0.12, 120);
+        this.nz(0.2, 0.15, 900, 'bandpass', 0);
+        break;
+      case 'frog': // THWAP
+        this.tone(900, 0.12, 'square', 0.1, 150);
+        this.nz(0.15, 0.25, 1400, 'bandpass', 0);
+        break;
+      case 'lizard':
+        this.nz(0.12, 0.3, 2500, 'bandpass', 0);
+        this.tone(160, 0.15, 'sine', 0.3, 60);
+        break;
+      case 'mantis': // shing!
+        this.tone(3200, 0.3, 'triangle', 0.08, 1200);
+        this.nz(0.2, 0.2, 6000, 'highpass', 0);
+        break;
+      case 'bee': // a patter of stingers
+        for (let i = 0; i < 4; i++) this.tone(1800 - i * 200, 0.05, 'square', 0.06, 600, i * 0.04);
+        break;
+      default:
+        this.tone(50, 0.7, 'sine', 0.55, 25);
+        this.nz(0.6, 0.45, 300, 'lowpass', 0);
+        break;
+    }
+  }
+
   private lastPick = 0;
   pick(combo = 0) {
     if (!this.ctx || this.ctx.currentTime - this.lastPick < 0.035) return;

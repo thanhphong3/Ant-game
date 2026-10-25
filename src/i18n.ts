@@ -125,6 +125,8 @@ const dict = {
   share: { vi: 'Khoe', en: 'Share' },
   shareText: { vi: 'Đàn kiến của mình vừa hạ {0} ở màn {1} với {2} ⭐! Chơi thử Kiến Ơi Kiến Ầm nè:', en: 'My ant swarm just beat {0} on level {1} with {2} ⭐! Try Ant Rumble:' },
   shareSaved: { vi: 'Đã lưu ảnh! 📸', en: 'Picture saved! 📸' },
+  shakeOpt: { vi: 'Rung màn hình', en: 'Screen shake' },
+  hapticsOpt: { vi: 'Rung máy', en: 'Vibration' },
   giftTomorrow: { vi: 'Mai quay lại nhé!', en: 'See you tomorrow!' },
 } as const;
 

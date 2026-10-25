@@ -1,3 +1,4 @@
+import type { RunStats } from './game';
 import type { Lang } from './i18n';
 
 export type Txt = { vi: string; en: string };
@@ -22,6 +23,21 @@ export const UPGRADES: UpgradeDef[] = [
 ];
 
 export const upgradeCost = (u: UpgradeDef, lvl: number) => Math.round(u.baseCost * Math.pow(1.55, lvl));
+
+/** What the bought upgrades and the chosen captain add up to in a run. */
+export function upgradeStats(u: Record<UpgradeId, number>, c: CaptainId): RunStats {
+  return {
+    startAnts: 8 + u.colony * 2 + (c === 'hat' ? 4 : 0),
+    power: 1 + u.power * 0.1 + (c === 'knight' ? 0.3 : 0),
+    magnet: (6 + u.magnet * 7) * (c === 'astro' ? 1.6 : 1),
+    // ants bounce off hazards 15% of the time even without upgrades
+    dodge: Math.min(0.85, 0.15 + u.armor * 0.04 + (c === 'ninja' ? 0.2 : 0)),
+    honeyMult: 1 + u.honey * 0.1 + (c === 'king' ? 0.3 : 0),
+    plusBoost: c === 'chubby' ? 1.25 : 1,
+    crumbHoneyMult: c === 'dj' ? 2 : 1,
+    captain: c,
+  };
+}
 
 export type CaptainId = 'basic' | 'hat' | 'ninja' | 'chubby' | 'dj' | 'astro' | 'knight' | 'king';
 

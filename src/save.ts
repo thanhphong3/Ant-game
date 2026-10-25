@@ -12,6 +12,8 @@ export interface SaveData {
   lang: Lang;
   sfx: boolean;
   music: boolean;
+  shake: boolean;
+  haptics: boolean;
   daily: Record<string, number>;
   fails: number; // failed attempts on the current level (makes the boss a bit weaker)
   quests: QuestBook | null;
@@ -40,6 +42,8 @@ const fresh = (): SaveData => ({
   lang: navigator.language?.toLowerCase().startsWith('vi') ? 'vi' : 'en',
   sfx: true,
   music: true,
+  shake: true,
+  haptics: true,
   daily: {},
   fails: 0,
   quests: null,

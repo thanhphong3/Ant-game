@@ -50,6 +50,8 @@ export interface RunResult {
   starBonus: number;
   total: number;
   tally: RunTally;
+  /** on a loss at the boss: the health it still had, out of its full health */
+  bossLeft?: [number, number];
 }
 
 interface Ant {
@@ -1248,6 +1250,7 @@ export class Run {
       starBonus: 0,
       total: Math.round(base * this.stats.honeyMult),
       tally: { ...this.tally },
+      bossLeft: this.resumePhase === 'boss' ? [Math.max(1, Math.ceil(this.bossHP)), this.bossMax] : undefined,
     };
   }
 

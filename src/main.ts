@@ -914,6 +914,21 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapte
         pill.textContent = `🍯 ${save.honey}`;
       })
     : '';
+  // On a loss, say how close it was and what helps, instead of just "the swarm scattered".
+  const canUpgrade = UPGRADES.some((u) => save.upgrades[u.id] < u.max && upgradeCost(u, save.upgrades[u.id]) <= save.honey);
+  let why: HTMLElement | '' = '';
+  if (!r.win) {
+    why = h('div', { class: 'lose-why' });
+    if (r.bossLeft) {
+      const [left, max] = r.bossLeft;
+      const fill = h('div', { class: 'qfill' });
+      fill.style.width = `${(left / max) * 100}%`;
+      why.append(h('div', { textContent: t('bossLeft', fmt(left), fmt(max)) }), h('div', { class: 'qbar boss-bar' }, fill));
+    } else why.append(h('div', { textContent: t('loseRun') }));
+    // mercyHP stops shaving the boss after five fails
+    if (!runIsDaily && runLevel === save.level && save.fails <= 5) why.append(h('div', { class: 'hint', textContent: t('loseMercy') }));
+    if (canUpgrade) why.append(h('div', { class: 'hint', textContent: t('loseNest') }));
+  }
   // Quest/trophy news sits in the panel: toasts here would cover the buttons.
   const news = [questsDone ? t('noteQuest') : '', newAch ? t('noteAch') : ''].filter(Boolean);
   const primary = r.win && !runIsDaily
@@ -929,11 +944,12 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapte
         newBest ? h('div', { class: 'tagline', textContent: `🏆 ${t('newBest')}` }) : '',
         chapterBonus ? h('div', { class: 'chapter-done', textContent: `📖 ${t('chapterDone', chapterOf(runLevel))} +${fmt(chapterBonus)} 🍯` }) : '',
         lines,
+        why,
         lucky,
         h('div', { class: 'list' },
           primary,
           h('div', { class: 'row tight' },
-            btn(`🏠 ${t('nest')}`, 'pink small', nestScreen),
+            btn(`🏠 ${t('nest')}`, `pink small${!r.win && canUpgrade ? ' glow' : ''}`, nestScreen),
             r.win && run ? shareBtn(run.lv, r) : '',
             btn(`↩ ${t('home')}`, 'white small', menuScreen),
           ),

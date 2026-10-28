@@ -65,7 +65,7 @@ interface Ant {
 
 interface Particle {
   x: number; y: number; vx: number; vy: number; life: number; max: number;
-  kind: 'poof' | 'confetti' | 'spark' | 'heart' | 'crumb';
+  kind: 'poof' | 'confetti' | 'spark' | 'heart' | 'crumb' | 'dart';
   color: string; size: number; rot: number;
 }
 
@@ -167,7 +167,6 @@ export class Run {
   slam: Slam | null = null;
   slamCD = 0.6;
   slamCount = 0;
-  private moveHinted = false;
   battle: Squad | null = null;
   tickAcc = 0;
   ended = false;
@@ -328,11 +327,11 @@ export class Run {
   }
 
   /** A tip shown the first time the player ever meets something, at any level. */
-  private introTip(id: string, s: string, x: number, d: number, done: () => boolean) {
+  private introTip(id: string, s: string, x: number, d: number, done: () => boolean, max = 4) {
     if (!this.introSeen || this.introSeen.has(id) || this.tip) return;
     this.introSeen.add(id);
     this.onIntro(id);
-    this.tip = { s, x, d, age: 0, done, max: 4 };
+    this.tip = { s, x, d, age: 0, done, max };
     this.sound.tick();
   }
 
@@ -1005,12 +1004,20 @@ export class Run {
   private updateBoss(dt: number) {
     // Slower than a squad fight so there is time to dodge the boss's slams
     // (measured in ants, so a strong swarm doesn't skip the whole dance).
+    // first boss ever: explain why the swarm shrinks even when every slam is dodged
+    if (this.phaseT > 0.3) this.introTip('boss', t('tipAmmo'), 0, this.bossD, () => false, 3.5);
     const rate = Math.max(8, (this.count + this.bossHP / this.power) / 8);
     this.tickAcc += dt * rate;
     while (this.tickAcc >= 1 && this.bossHP > 0 && this.count > 0) {
       this.tickAcc -= 1;
       this.bossHP -= this.power;
       this.count -= 1;
+      // show the ant being spent: it dashes from the swarm into the boss
+      const sx = this.bossCx + (Math.random() - 0.5) * this.radius;
+      const sy = this.bossCy + (Math.random() - 0.5) * this.radius * 0.6;
+      const tx = (Math.random() - 0.5) * 80;
+      const ty = this.bossD - 30 + Math.random() * 30;
+      this.parts.push({ x: sx, y: sy, vx: (tx - sx) / 0.3, vy: (ty - sy) / 0.3, life: 0, max: 0.3, kind: 'dart', color: INK, size: 3, rot: 0 });
       if (this.time - this.lastHurt > 0.22) {
         this.bossV.hurt = 1;
         this.lastHurt = this.time;
@@ -1152,14 +1159,12 @@ export class Run {
     // Every few attacks the boss pulls out its signature move (more often when furious or at a chapter finale).
     const every = (rage ? 2 : 3) - (this.finale ? 1 : 0);
     if (n > 0 && n % Math.max(1, every) === every - 1) {
-      this.slam = this.signature();
+      const sl = (this.slam = this.signature());
       const mv = BOSS_MOVES[this.lv.boss];
       this.bossLine = { s: `${mv.icon} ${tr(mv.name)}!`, life: 0 };
       this.sound.move(this.lv.boss);
-      if (!this.moveHinted) {
-        this.moveHinted = true;
-        this.float(0, this.bossCy + 80, tr(mv.hint), '#fff', 18);
-      }
+      // the first time each boss pulls its trick: say how to dodge it, in slow-mo, while it winds up
+      this.introTip(`move-${this.lv.boss}`, `${mv.icon} ${tr(mv.hint)}`, safeSpot(sl.zones), this.bossCy, () => this.slam !== sl || sl.hit > 0 || this.phase !== 'boss');
       return;
     }
     // Aim at the side holding most of the swarm, so the player has to move.
@@ -1280,6 +1285,8 @@ export class Run {
         p.vy -= 260 * dt;
         p.vx *= 0.98;
         p.rot += dt * 8;
+      } else if (p.kind === 'dart') {
+        /* flies straight at the boss */
       } else {
         p.vx *= 0.9;
         p.vy *= 0.9;
@@ -1512,6 +1519,16 @@ export class Run {
         ctx.rotate(p.rot);
         ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
         ctx.restore();
+      } else if (p.kind === 'dart') {
+        // an ant charging the boss: a little dark streak
+        ctx.globalAlpha = 1;
+        ctx.save();
+        ctx.translate(p.x, py);
+        ctx.rotate(Math.atan2(-p.vy, p.vx));
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.size * 1.8, p.size * 0.9, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
       } else if (p.kind === 'spark') {
         ctx.save();
         ctx.translate(p.x, py);
@@ -1672,36 +1689,23 @@ export class Run {
       text(ctx, '👆', W / 2 + bob * 3, H * 0.52, 40 * u, '#fff', INK);
       ctx.globalAlpha = 1;
     }
-    if (this.tip) {
-      const k = Math.min(1, this.tip.age * 5);
-      ctx.save();
-      ctx.translate(W / 2, H * 0.24);
-      ctx.scale(k, k);
-      ctx.globalAlpha = 0.9;
-      const bw = Math.min(W - 24, 380);
-      const size = 19 * u;
-      const lines = splitLines(ctx, this.tip.s, bw - 28 * u, size);
-      const bh = Math.max(68 * u, lines.length * size * 1.25 + 30 * u);
-      rrect(ctx, -bw / 2, -bh / 2, bw, bh, 18 * u, 5, 0.6);
-      paint(ctx, '#fffaf0', 3);
-      ctx.globalAlpha = 1;
-      lines.forEach((l, i) => text(ctx, l, 0, (i - (lines.length - 1) / 2) * size * 1.25, size, '#ff7eb6', INK));
-      ctx.restore();
-    }
+    if (this.tip) card(ctx, this.tip.s, W / 2, H * 0.24, Math.min(W - 24, 380), 19 * u, u, Math.min(1, this.tip.age * 5));
     if (this.phase === 'bossIntro') {
+      // up top, clear of the boss's name, health and taunts
       const k = Math.min(1, this.phaseT * 3);
       ctx.save();
-      ctx.translate(W / 2, H * 0.3);
+      ctx.translate(W / 2, H * 0.13);
       ctx.rotate(-0.06);
       ctx.scale(k, k);
       text(ctx, t('bossTime'), 0, 0, 40 * u, '#ff7eb6', INK);
       ctx.restore();
-      if (this.lv.num <= 4 || this.lv.daily) wrapText(ctx, t('tipBoss'), W / 2, H * 0.3 + 50 * u, Math.min(W - 40, 380), 16 * u);
+      if (this.lv.num <= 4 || this.lv.daily) card(ctx, t('tipBoss'), W / 2, H * 0.13 + 75 * u, Math.min(W - 24, 380), 16 * u, u, k);
     }
     if (this.rageBanner > 0) {
       const k = Math.min(1, (1.8 - this.rageBanner) * 4);
       ctx.save();
-      ctx.translate(W / 2 + Math.sin(this.time * 50) * 2 * this.rageBanner, H * 0.25);
+      // same spot as the intro banner, so it never sits on a tip card
+      ctx.translate(W / 2 + Math.sin(this.time * 50) * 2 * this.rageBanner, H * 0.13);
       ctx.rotate(0.05);
       ctx.scale(k, k);
       ctx.globalAlpha = Math.min(1, this.rageBanner * 2);
@@ -1723,8 +1727,33 @@ export class Run {
   }
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, maxW: number, size: number) {
-  splitLines(ctx, s, maxW, size).forEach((l, i) => text(ctx, l, x, y + i * size * 1.25, size, '#fff', INK));
+/** Where to stand to dodge `zones`: the spot furthest from all of them. */
+function safeSpot(zones: [number, number][]) {
+  let best = 0;
+  let room = -Infinity;
+  for (let x = -TRACK_HALF + 25; x <= TRACK_HALF - 25; x += 5) {
+    const r = Math.min(...zones.map(([a, b]) => (x < a ? a - x : x > b ? x - b : -Math.min(x - a, b - x))));
+    if (r > room) {
+      room = r;
+      best = x;
+    }
+  }
+  return best;
+}
+
+/** A cream speech card centred on (x, y) with wrapped pink text, popping in with `k` (0..1). */
+function card(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, w: number, size: number, u: number, k: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(k, k);
+  ctx.globalAlpha = 0.9;
+  const lines = splitLines(ctx, s, w - 28 * u, size);
+  const h = Math.max(68 * u, lines.length * size * 1.25 + 30 * u);
+  rrect(ctx, -w / 2, -h / 2, w, h, 18 * u, 5, 0.6);
+  paint(ctx, '#fffaf0', 3);
+  ctx.globalAlpha = 1;
+  lines.forEach((l, i) => text(ctx, l, 0, (i - (lines.length - 1) / 2) * size * 1.25, size, '#ff7eb6', INK));
+  ctx.restore();
 }
 
 /** Breaks `s` into lines no wider than `maxW` at the bold UI font. */

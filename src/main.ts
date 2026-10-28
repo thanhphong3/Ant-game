@@ -211,7 +211,7 @@ function menuScreen() {
         btn('⚙️', 'white icon-btn', settingsScreen),
       ),
     ),
-    h('div', { class: 'version', textContent: 'v1.5' }),
+    h('div', { class: 'version', textContent: 'v1.6' }),
   );
   if (refundPending) {
     refundScreen();

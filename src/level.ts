@@ -1,6 +1,7 @@
 import { BOSSES, levelTheme, type BossKind } from './data';
 import type { CrumbKind, FoodKind, ObstacleKind } from './art';
 import { TRACK_HALF } from './art';
+import { getLang } from './i18n';
 import { irange, mulberry32, pick, range, type Rng } from './rng';
 
 export interface Crumb { kind: CrumbKind; x: number; d: number; value: number; taken: boolean; seed: number }
@@ -70,7 +71,9 @@ export const BOOST_L = 84;
 export type Slot = NonNullable<Gate['slot']>;
 export const slotOp = (s: Slot, time: number) => s.ops[Math.floor(time / s.period) % s.ops.length];
 
-export const gateLabel = (g: GateOp) => (g.op === '?' ? '?' : (g.op === '+' ? '+' : g.op === '-' ? '−' : g.op === 'x' ? '×' : '÷') + g.v);
+// Division is written ":" in Vietnamese schools, and a small "÷" is easy to misread as "+" on a phone.
+const divSign = () => (getLang() === 'vi' ? ':' : '÷');
+export const gateLabel = (g: GateOp) => (g.op === '?' ? '?' : (g.op === '+' ? '+' : g.op === '-' ? '−' : g.op === 'x' ? '×' : divSign()) + g.v);
 export const gateGood = (g: GateOp) => g.op === '+' || g.op === 'x';
 /** A mystery gate turns into a real one when the swarm walks through it: usually a treat, sometimes a trick. */
 export function revealMystery(n: number, rnd: () => number): GateOp {

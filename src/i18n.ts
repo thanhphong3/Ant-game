@@ -105,6 +105,7 @@ const dict = {
   tipPower: { vi: '🫧 Chạm bong bóng để nhận sức mạnh!', en: '🫧 Grab the bubble for a power-up!' },
   tipGiant: { vi: '🍄 Nấm thần: hóa kiến khổng lồ, đạp bẹp mọi chướng ngại!', en: '🍄 Mushroom: turn giant and flatten the junk!' },
   tipBoost: { vi: '⚡ Chạy lên mũi tên để lao vút đi!', en: '⚡ Run over the arrows to dash!' },
+  tipAmmo: { vi: '⚔️ Mỗi con kiến lao vào trùm là một đòn: đàn càng đông, trùm càng mau gục!', en: '⚔️ Every ant that charges is one hit: the bigger the swarm, the faster the boss falls!' },
   tipPea: { vi: '🟢 Hạt đậu lăn qua lại: canh lúc nó lăn đi rồi lách qua!', en: '🟢 The pea rolls side to side: slip past behind it!' },
   dailyLocked: { vi: 'Thắng màn 3 để mở Thử thách ngày!', en: 'Beat level 3 to unlock the Daily Challenge!' },
   noteQuest: { vi: '📜 Xong nhiệm vụ', en: '📜 Quest done' },

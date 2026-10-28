@@ -12,7 +12,7 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 - 🍉 Mồi to: cần đủ số kiến, vài con sẽ khiêng về tổ để đổi lấy nhiều mật.
 - 🦶 Coi chừng bàn chân khổng lồ, cái thìa, cục tẩy, hạt đậu lăn…
 - ❓ Cổng bí ẩn: đổi vận may — có thể là ×2, ×3… hoặc một cú lừa!
-- 🎰 Cổng xoay số: một bên cổng liên tục đổi giá trị (×2, −, +, ÷2) — canh đúng lúc mà chui vào!
+- 🎰 Cổng xoay số: một bên cổng liên tục đổi giá trị (×2, −, +, :2) — canh đúng lúc mà chui vào!
 - 🔓 Hũ kiến bị nhốt: chạm vào để giải cứu cả đám, nhưng thường có bẫy canh giữ.
 - ⚡ Đường tăng tốc: chạy lên mũi tên để lao vút đi, bất tử trong chốc lát và hút sạch vụn bánh.
 - 🐞 **Bọ rùa vàng**: mỗi màn có một con, thấy đàn kiến là nó co giò bỏ chạy, vừa chạy vừa rơi kẹo. Đuổi kịp là trúng mánh to! Dồn vào tường thì nó lách qua mặt — cẩn thận.
@@ -26,6 +26,15 @@ A cute, chaotic swarm game: lead a tiny ant army, munch crumbs, pick the right g
 - 💀 Cứ 5 màn lại có một **trùm khó** — nâng cấp tổ kiến trước khi vào nhé! Thua thì trùm màn đó yếu dần đi một chút sau mỗi lần thử.
 - 🍀 Thắng xong còn có thanh **nhân thưởng may mắn**: bấm dừng kim đúng ô ×3 để nhân ba số mật!
 - 🎉 Đàn kiến chạm mốc 25, 50, 100… con sẽ được ăn mừng.
+
+## Mới trong v1.6
+Sửa theo góp ý chơi thử của người mới:
+- 💡 **Mẹo khi lần đầu gặp** (có chậm thời gian, mỗi thứ chỉ một lần): quân địch, cổng xoay số, cổng bí ẩn, mồi to, bong bóng, nấm, đường tăng tốc, hạt đậu lăn, trận trùm đầu tiên và tuyệt chiêu của từng trùm. Ngón tay luôn chỉ chỗ *nên đi* (làn an toàn, đội địch đánh thắng được, chỗ né đòn), không bao giờ dẫn băng qua chướng ngại.
+- ⚔️ Đánh trùm: thấy rõ từng con kiến lao vào trùm (mỗi con là một đòn); chữ "Trùm xuất hiện" / "Trùm nổi điên" và mẹo nằm trong khung ở đầu màn hình, không đè lên trùm.
+- 🟥 Chướng ngại có vùng đỏ nhấp nháy đúng chỗ gây hại; cúc áo đổi màu xanh xám để không bị nhầm với bánh quy.
+- Màn 1 có cổng xanh/đỏ thật để học chọn cổng. Phép chia ghi `:2` (tiếng Việt) cho dễ đọc trên điện thoại.
+- 📅 Thử thách ngày mở sau khi thắng màn 3.
+- Bớt chữ chồng chữ khi cuồng nhiệt; thông báo không còn che nút ở màn thắng.
 
 ## Mới trong v1.5
 - 🎓 **Hướng dẫn tận tay** ở màn 1–2: ngón tay chỉ đường, chậm thời gian khi gặp vụn bánh, cổng, chướng ngại, hũ kiến và đòn trùm.

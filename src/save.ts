@@ -78,7 +78,7 @@ export function loadSave(): SaveData {
       ver: data.ver ?? 1,
       tutorial: data.tutorial ?? (data.level ?? 1) > 2,
       // saves from before first-look tips: past level 5 everything has been met already
-      tips: data.tips ?? ((data.level ?? 1) > 5 ? ['squad', 'slot', 'mystery', 'food', 'power', 'giant', 'boost', 'pea'] : []),
+      tips: data.tips ?? ((data.level ?? 1) > 5 ? ['squad', 'slot', 'mystery', 'food', 'power', 'giant', 'boost', 'pea', 'boss'] : []),
     };
   } catch {
     return base;

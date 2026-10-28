@@ -363,9 +363,10 @@ export class Run {
         const reach = Math.max(...o.colliders.map((c) => Math.abs(c.dx) + c.r));
         const dir = o.x > 0 ? -1 : 1;
         const safe = Math.max(-TRACK_HALF + 30, Math.min(TRACK_HALF - 30, o.x + dir * (reach + 55)));
-        this.showTip('hazard', t('tipHazard'), safe, o.d, () => this.d > o.d - 40);
+        this.showTip('hazard', t('tipHazard'), safe, o.d, () => this.d > o.d + 30);
       }
-      const j = lv.jars.find((j) => !j.open && j.d - this.d > 0 && j.d - this.d < 260);
+      // don't beckon towards a jar while its guard is still in the way
+      const j = lv.jars.find((j) => !j.open && j.d - this.d > 0 && j.d - this.d < 260 && !lv.obstacles.some((o) => !o.smashed && o.d > this.d - 30 && o.d < j.d));
       if (j) this.showTip('jar', t('tipJar'), j.x, j.d, () => j.open);
     } else if (this.phase === 'boss' && this.slam && this.slam.hit <= 0 && !this.slam.icon) {
       const [x0, x1] = this.slam.zones[0];

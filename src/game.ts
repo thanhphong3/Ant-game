@@ -155,7 +155,7 @@ export class Run {
   introSeen: Set<string> | null = null;
   /** Called when a first-look tip is shown, so the caller can remember it across runs. */
   onIntro: (id: string) => void = () => {};
-  private tip: { s: string; x: number; d: number; age: number; done: () => boolean } | null = null;
+  private tip: { s: string; x: number; d: number; age: number; done: () => boolean; max: number } | null = null;
   private tipsSeen = new Set<string>();
   /** sideways drift from fan wind */
   windOff = 0;
@@ -320,10 +320,10 @@ export class Run {
   }
 
   // ------------------------------------------------------------ tutorial
-  private showTip(id: string, s: string, x: number, d: number, done: () => boolean) {
+  private showTip(id: string, s: string, x: number, d: number, done: () => boolean, max = 4) {
     if (this.tipsSeen.has(id) || this.tip) return;
     this.tipsSeen.add(id);
-    this.tip = { s, x, d, age: 0, done };
+    this.tip = { s, x, d, age: 0, done, max };
     this.sound.tick();
   }
 
@@ -332,14 +332,14 @@ export class Run {
     if (!this.introSeen || this.introSeen.has(id) || this.tip) return;
     this.introSeen.add(id);
     this.onIntro(id);
-    this.tip = { s, x, d, age: 0, done };
+    this.tip = { s, x, d, age: 0, done, max: 4 };
     this.sound.tick();
   }
 
   private updateCoach(dt: number) {
     if (this.tip) {
       this.tip.age += dt;
-      if (this.tip.age > 0.6 && (this.tip.done() || this.tip.age > 4)) this.tip = null;
+      if (this.tip.age > 0.6 && (this.tip.done() || this.tip.age > this.tip.max)) this.tip = null;
       return;
     }
     const lv = this.lv;
@@ -363,10 +363,11 @@ export class Run {
         const reach = Math.max(...o.colliders.map((c) => Math.abs(c.dx) + c.r));
         const dir = o.x > 0 ? -1 : 1;
         const safe = Math.max(-TRACK_HALF + 30, Math.min(TRACK_HALF - 30, o.x + dir * (reach + 55)));
-        this.showTip('hazard', t('tipHazard'), safe, o.d, () => this.d > o.d + 30);
+        // stays up (in slow-mo, so allow the time) until the swarm is clear of it
+        this.showTip('hazard', t('tipHazard'), safe, o.d, () => this.d > o.d + 30, 7);
       }
       // don't beckon towards a jar while its guard is still in the way
-      const j = lv.jars.find((j) => !j.open && j.d - this.d > 0 && j.d - this.d < 260 && !lv.obstacles.some((o) => !o.smashed && o.d > this.d - 30 && o.d < j.d));
+      const j = lv.jars.find((j) => !j.open && j.d - this.d > 0 && j.d - this.d < 260 && this.clearTo(j.d));
       if (j) this.showTip('jar', t('tipJar'), j.x, j.d, () => j.open);
     } else if (this.phase === 'boss' && this.slam && this.slam.hit <= 0 && !this.slam.icon) {
       const [x0, x1] = this.slam.zones[0];
@@ -375,9 +376,14 @@ export class Run {
     }
   }
 
+  /** No hazard left between the swarm and `d`: a tip may beckon that far without leading into junk. */
+  private clearTo(d: number) {
+    return !this.lv.obstacles.some((o) => !o.smashed && o.d > this.d - 30 && o.d < d);
+  }
+
   private updateIntros() {
     const lv = this.lv;
-    const ahead = (d: number, far = 260) => d - this.d > 0 && d - this.d < far;
+    const ahead = (d: number, far = 260) => d - this.d > 0 && d - this.d < far && this.clearTo(d);
     const passed = (d: number) => () => this.d > d;
     const s = lv.squads.find((s) => !s.dead && ahead(s.d, 300));
     if (s) {

@@ -105,7 +105,7 @@ const dict = {
   tipPower: { vi: '🫧 Chạm bong bóng để nhận sức mạnh!', en: '🫧 Grab the bubble for a power-up!' },
   tipGiant: { vi: '🍄 Nấm thần: hóa kiến khổng lồ, đạp bẹp mọi chướng ngại!', en: '🍄 Mushroom: turn giant and flatten the junk!' },
   tipBoost: { vi: '⚡ Chạy lên mũi tên để lao vút đi!', en: '⚡ Run over the arrows to dash!' },
-  starHint: { vi: '⭐ Hạ trùm mà còn đông kiến thì được nhiều sao hơn', en: '⭐ Beat the boss with more ants left for more stars' },
+  starHint: { vi: '⭐ Còn đông kiến khi hạ trùm = nhiều sao hơn', en: '⭐ More ants left at the end = more stars' },
   buffFever: { vi: 'x2 kiến', en: 'x2 ants' },
   buffDash: { vi: 'Lao vút', en: 'Dash' },
   buffShield: { vi: 'Khiên', en: 'Shield' },

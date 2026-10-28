@@ -102,7 +102,11 @@ html, body {
   background: var(--ink); color: #fff; text-align: center; max-width: 100%;
   padding: 6px 16px; border-radius: 99px; font-weight: 700; animation: pop .3s;
 }
-.news { margin-top: 10px; font-size: 14px; font-weight: 700; opacity: .8; }
+.news { margin-top: 6px; font-size: 14px; font-weight: 700; opacity: .8; }
+.star-hint { margin: -2px 0 4px; font-size: 13px; font-weight: 700; opacity: .75; }
+/* result screen: the three small buttons share one line instead of wrapping */
+.row.tight { flex-wrap: nowrap; gap: 6px; }
+.row.tight .btn.small { padding: 4px 9px; font-size: 15px; white-space: nowrap; }
 .btn.locked { filter: grayscale(.7); opacity: .75; animation: none; }
 .setting { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; font-size: 20px; font-weight: 700; }
 .best { font-size: 14px; opacity: .85; }
@@ -194,6 +198,28 @@ html, body {
   .lucky-btn { font-size: 20px; padding: 4px 18px; }
   .btn.big { font-size: 26px; padding: 6px 26px; }
   .list { margin: 6px 0 8px; gap: 8px; }
+}
+
+/* the result panel is the tallest one: tighten it on ordinary phones too */
+@media (max-height: 860px) {
+  .panel.result { padding: 12px 14px 14px; }
+  .panel.result h2 { font-size: 26px; margin-bottom: 4px; }
+  .panel.result .star { font-size: 38px; }
+  .panel.result .star:nth-child(2) { font-size: 48px; margin-top: -6px; }
+  .panel.result .result-lines { font-size: 16px; padding: 4px 12px; margin: 4px 0 10px; }
+  .panel.result .result-lines .tot { font-size: 21px; }
+  .panel.result .lucky { padding: 6px 10px 10px; margin-bottom: 8px; }
+  .panel.result .lucky-bar { height: 32px; margin-bottom: 8px; }
+  .panel.result .lucky-btn { font-size: 20px; padding: 4px 18px; }
+  .panel.result .btn.big { font-size: 26px; padding: 6px 26px; }
+  .panel.result .list { margin: 6px 0 8px; gap: 8px; }
+}
+@media (max-height: 700px) {
+  .panel.result .star { font-size: 32px; }
+  .panel.result .star:nth-child(2) { font-size: 40px; margin-top: -4px; }
+  .panel.result .chapter-done { font-size: 15px; padding: 2px 8px; margin: 2px 0; }
+  .panel.result .lucky-title { font-size: 15px; margin-bottom: 2px; }
+  .panel.result .result-lines { line-height: 1.25; }
 }
 
 /* ---------- chapters, map, trophies, skins, stats */

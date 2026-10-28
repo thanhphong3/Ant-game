@@ -217,8 +217,8 @@ function menuScreen() {
     refundScreen();
     return;
   }
-  // Pop the daily gift open by itself, once per visit.
-  if (gd && !giftOffered) {
+  // Pop the daily gift open by itself, once per visit (not before the very first run: play comes first).
+  if (gd && !giftOffered && save.life.runs > 0) {
     giftOffered = true;
     giftScreen();
   }
@@ -383,7 +383,14 @@ function collectionScreen() {
   show(
     honeyPill(),
     h('div', { class: 'screen' },
-      h('div', { class: 'panel' }, h('h2', { textContent: `🐜 ${t('captain')}` }), grid, h('h2', { textContent: `🎨 ${t('skins')}` }), skinRow(), h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen))),
+      h('div', { class: 'panel' },
+        h('h2', { textContent: `🐜 ${t('colony')}` }),
+        h('div', { class: 'ch-title', textContent: `👑 ${t('captain')}` }),
+        grid,
+        h('div', { class: 'ch-title', textContent: `🎨 ${t('skins')}` }),
+        skinRow(),
+        h('div', { class: 'center' }, btn(`↩ ${t('back')}`, 'white', menuScreen)),
+      ),
     ),
   );
 }
@@ -889,7 +896,7 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapte
   const lines = h('div', { class: 'result-lines' },
     h('div', {}, h('span', { textContent: `🐜 ${t('antsLeft')}` }), h('span', { textContent: fmt(r.antsLeft) })),
     line(`🍞 ${t('crumbs')}`, r.crumbHoney + r.fightHoney),
-    line(`🍉 ${t('bigFood')}`, r.foodHoney),
+    r.foodHoney ? line(`🍉 ${t('bigFood')}`, r.foodHoney) : '',
     r.bugHoney ? line(`🐞 ${t('goldBug')}`, r.bugHoney) : '',
     line(`🎖 ${t('bonus')}`, r.bonus),
     r.win ? line(`⭐ ${t('starBonus')}`, r.starBonus) : '',
@@ -918,6 +925,7 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapte
       h('div', { class: 'panel center' },
         h('h2', { textContent: r.win ? `🎉 ${t('win')}` : `😵 ${t('lose')}` }),
         r.win ? starRow(r.stars) : '',
+        r.win && r.stars < 3 ? h('div', { class: 'news', textContent: t('starHint') }) : '',
         newBest ? h('div', { class: 'tagline', textContent: `🏆 ${t('newBest')}` }) : '',
         chapterBonus ? h('div', { class: 'chapter-done', textContent: `📖 ${t('chapterDone', chapterOf(runLevel))} +${fmt(chapterBonus)} 🍯` }) : '',
         lines,

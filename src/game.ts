@@ -157,6 +157,8 @@ export class Run {
   onIntro: (id: string) => void = () => {};
   private tip: { s: string; x: number; d: number; age: number; done: () => boolean; max: number } | null = null;
   private tipsSeen = new Set<string>();
+  /** seconds before the next non-urgent first-look tip may interrupt again */
+  private tipGap = 0;
   /** sideways drift from fan wind */
   windOff = 0;
   private resumePhase: Phase = 'run';
@@ -327,8 +329,10 @@ export class Run {
   }
 
   /** A tip shown the first time the player ever meets something, at any level. */
-  private introTip(id: string, s: string, x: number, d: number, done: () => boolean, max = 4) {
+  private introTip(id: string, s: string, x: number, d: number, done: () => boolean, max = 4, urgent = false) {
     if (!this.introSeen || this.introSeen.has(id) || this.tip) return;
+    // don't stack slow-mo stops back to back; anything skipped gets its tip at the next meeting
+    if (this.tipGap > 0 && !urgent) return;
     this.introSeen.add(id);
     this.onIntro(id);
     this.tip = { s, x, d, age: 0, done, max };
@@ -338,9 +342,13 @@ export class Run {
   private updateCoach(dt: number) {
     if (this.tip) {
       this.tip.age += dt;
-      if (this.tip.age > 0.6 && (this.tip.done() || this.tip.age > this.tip.max)) this.tip = null;
+      if (this.tip.age > 0.6 && (this.tip.done() || this.tip.age > this.tip.max)) {
+        this.tip = null;
+        this.tipGap = 5;
+      }
       return;
     }
+    this.tipGap -= dt;
     const lv = this.lv;
     if (this.phase === 'run') this.updateIntros();
     if (!this.coach) return;
@@ -391,7 +399,7 @@ export class Run {
       const win = row.filter((q) => q.hp < this.count * this.power).sort((a, b) => a.hp - b.hp)[0];
       const gap = (x: number) => Math.min(...row.map((q) => Math.abs(q.x - x)));
       const x = win ? win.x : [-0.7, 0, 0.7].map((k) => k * TRACK_HALF).reduce((a, b) => (gap(b) > gap(a) ? b : a));
-      this.introTip('squad', t('tipSquad'), x, s.d, () => this.d > s.d - 20 || this.phase === 'battle');
+      this.introTip('squad', t('tipSquad'), x, s.d, () => this.d > s.d - 20 || this.phase === 'battle', 4, true);
     }
     for (const g of lv.gates) {
       if (g.chosen || !ahead(g.d, 280)) continue;
@@ -1005,7 +1013,7 @@ export class Run {
     // Slower than a squad fight so there is time to dodge the boss's slams
     // (measured in ants, so a strong swarm doesn't skip the whole dance).
     // first boss ever: explain why the swarm shrinks even when every slam is dodged
-    if (this.phaseT > 0.3) this.introTip('boss', t('tipAmmo'), 0, this.bossD, () => false, 3.5);
+    if (this.phaseT > 0.3) this.introTip('boss', t('tipAmmo'), 0, this.bossD, () => false, 3.5, true);
     const rate = Math.max(8, (this.count + this.bossHP / this.power) / 8);
     this.tickAcc += dt * rate;
     while (this.tickAcc >= 1 && this.bossHP > 0 && this.count > 0) {
@@ -1164,7 +1172,7 @@ export class Run {
       this.bossLine = { s: `${mv.icon} ${tr(mv.name)}!`, life: 0 };
       this.sound.move(this.lv.boss);
       // the first time each boss pulls its trick: say how to dodge it, in slow-mo, while it winds up
-      this.introTip(`move-${this.lv.boss}`, `${mv.icon} ${tr(mv.hint)}`, safeSpot(sl.zones), this.bossCy, () => this.slam !== sl || sl.hit > 0 || this.phase !== 'boss');
+      this.introTip(`move-${this.lv.boss}`, `${mv.icon} ${tr(mv.hint)}`, safeSpot(sl.zones), this.bossCy, () => this.slam !== sl || sl.hit > 0 || this.phase !== 'boss', 4, true);
       return;
     }
     // Aim at the side holding most of the swarm, so the player has to move.
@@ -1636,27 +1644,33 @@ export class Run {
     text(ctx, `🍯 ${honey}`, bx + bw, by + 32 * u, 15 * u, '#ffd166', INK, 'right');
 
     // active buffs
-    const buffs: [string, number, number, string][] = [
-      ['🔥', this.feverT, 5, '#ffd166'],
-      ['⚡', this.dashT, DASH_TIME, '#7ed6ff'],
-      ['🛡️', this.shieldT, POWER_TIME.shield, '#7ed6ff'],
-      ['🧲', this.magnetT, POWER_TIME.magnet, '#ff7eb6'],
-      ['💢', this.rageT, POWER_TIME.rage, '#ffb347'],
-      ['🍄', this.giantT, POWER_TIME.giant, '#b5f27a'],
+    const buffs: [string, string, number, number, string][] = [
+      ['🔥', t('buffFever'), this.feverT, 5, '#ffd166'],
+      ['⚡', t('buffDash'), this.dashT, DASH_TIME, '#7ed6ff'],
+      ['🛡️', t('buffShield'), this.shieldT, POWER_TIME.shield, '#7ed6ff'],
+      ['🧲', t('buffMagnet'), this.magnetT, POWER_TIME.magnet, '#ff7eb6'],
+      ['💢', t('buffRage'), this.rageT, POWER_TIME.rage, '#ffb347'],
+      ['🍄', t('buffGiant'), this.giantT, POWER_TIME.giant, '#b5f27a'],
     ];
+    // each pill says what it does (a bare icon + bar meant nothing to new players)
+    const pw = 86 * u;
     let px = bx;
-    for (const [icon, left, max, col] of buffs) {
+    let py = by + 50 * u;
+    for (const [icon, label, left, max, col] of buffs) {
       if (left <= 0) continue;
-      const pw = 64 * u;
-      const py = by + 50 * u;
-      rrect(ctx, px, py, pw, 22 * u, 11 * u, 91, 0.3);
+      if (px + pw > W - 10) {
+        px = bx;
+        py += 32 * u;
+      }
+      rrect(ctx, px, py, pw, 28 * u, 12 * u, 91, 0.3);
       paint(ctx, 'rgba(255,255,255,0.9)', 2);
-      rrect(ctx, px + 24 * u, py + 7 * u, (pw - 30 * u) * (left / max), 8 * u, 4 * u, 92, 0);
+      text(ctx, label, px + 24 * u, py + 9 * u, 10 * u, INK, '#fff', 'left');
+      rrect(ctx, px + 24 * u, py + 16 * u, (pw - 30 * u) * (left / max), 6 * u, 3 * u, 92, 0);
       paint(ctx, col, 0);
       ctx.font = `${14 * u}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(icon, px + 13 * u, py + 12 * u);
+      ctx.fillText(icon, px + 13 * u, py + 14 * u);
       px += pw + 6 * u;
     }
     // combo meter towards fever

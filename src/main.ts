@@ -71,9 +71,11 @@ function show(...els: HTMLElement[]) {
 }
 
 function toast(msg: string, ms = 1400) {
+  // one stack per screen, so several toasts line up instead of piling on each other
+  let stack = ui.querySelector<HTMLElement>('.toasts');
+  if (!stack) ui.append((stack = h('div', { class: 'toasts' })));
   const el = h('div', { class: 'toast', textContent: msg });
-  el.style.bottom = `${40 + ui.querySelectorAll('.toast').length * 44}px`; // stack, don't overlap
-  ui.append(el);
+  stack.append(el);
   setTimeout(() => el.remove(), ms);
 }
 
@@ -165,6 +167,9 @@ function chapterBar() {
 }
 
 // ------------------------------------------------------------------ screens
+/** The daily challenge is a level-8 course with no tips: it opens once level 3 is beaten. */
+const DAILY_FROM = 3;
+
 function menuScreen() {
   run = null;
   sound.setMusic('menu');
@@ -188,7 +193,12 @@ function menuScreen() {
       h('div', { style: 'height:8px' }),
       btn(`▶ ${t('play')} · ${levelName(save.level)}`, 'big', () => startRun(false)),
       chapterBar(),
-      btn(`📅 ${t('daily')}${best ? `<span class="best">&nbsp;(${t('dailyBest')}: ${fmt(best)})</span>` : ''}`, 'sky', () => startRun(true)),
+      save.level > DAILY_FROM
+        ? btn(`📅 ${t('daily')}${best ? `<span class="best">&nbsp;(${t('dailyBest')}: ${fmt(best)})</span>` : ''}`, 'sky', () => startRun(true))
+        : btn(`🔒 ${t('daily')}`, 'sky locked', () => {
+            sound.nope();
+            toast(t('dailyLocked'), 2000);
+          }),
       h('div', { class: 'menu-grid' },
         btn(`🏠 ${t('nest')}`, 'pink tile', nestScreen),
         btn(`🐜 ${t('colony')}`, 'grape tile', collectionScreen),
@@ -648,6 +658,11 @@ function startRun(daily: boolean, level = save.level) {
   sound.party = save.captain === 'dj';
   run = new Run(lv, stats(), sound, onRunEnd);
   run.coach = !daily && !save.tutorial && level <= 2;
+  run.introSeen = new Set(save.tips);
+  run.onIntro = (id) => {
+    save.tips.push(id);
+    persist();
+  };
   sound.setMusic('menu');
   show(btn('⏸', 'white icon-btn pause-btn', pauseScreen));
 }
@@ -770,9 +785,10 @@ function finishRun(r: RunResult) {
   if (runIsDaily) {
     life.dailies++;
     const k = todayKey();
-    if (r.total > (save.daily[k] ?? 0)) {
+    const prev = save.daily[k];
+    if (r.total > (prev ?? 0)) {
       save.daily[k] = r.total;
-      newBest = true;
+      newBest = prev !== undefined; // the first try of the day is a score, not a record
     }
   } else {
     const ls = (save.levels[runLevel] ??= { tries: 0, wins: 0, quits: 0 });
@@ -889,9 +905,10 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapte
         sound.win();
         countUp(total, r.total, r.total + extra, 700);
         pill.textContent = `🍯 ${save.honey}`;
-        toast(`🍀 ×${mult}! +${fmt(extra)} 🍯`);
       })
     : '';
+  // Quest/trophy news sits in the panel: toasts here would cover the buttons.
+  const news = [questsDone ? t('noteQuest') : '', newAch ? t('noteAch') : ''].filter(Boolean);
   const primary = r.win && !runIsDaily
     ? btn(`▶ ${levelName(save.level)}`, 'big', () => startRun(false))
     : btn(`↻ ${t('retry')}`, 'big', () => startRun(runIsDaily, runLevel || save.level));
@@ -913,11 +930,10 @@ function resultScreen(r: RunResult, newBest: boolean, questsDone: number, chapte
             btn(`↩ ${t('home')}`, 'white small', menuScreen),
           ),
         ),
+        news.length ? h('div', { class: 'news', textContent: `${news.join(' · ')} → ${t('noteClaim')}` }) : '',
       ),
     ),
   );
-  if (questsDone) setTimeout(() => toast(`📜 ${t('questDone')}`, 2200), 1100);
-  if (newAch) setTimeout(() => toast(`🏆 ${t('achNew')}`, 2200), 1500);
   if (chapterBonus) setTimeout(() => sound.gift(), 600);
 }
 

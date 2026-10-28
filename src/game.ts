@@ -1,6 +1,6 @@
 import {
   INK, TAU, TRACK_HALF, drawAccessory, drawAnt, drawBeetle, drawBoostPad, drawBoss, drawCrumb, drawFood, drawFoot,
-  drawFan, drawFootShadow, drawGate, drawPuddle, drawWind, drawGround, drawJar, drawLadybug, drawObstacle, drawPowerUp, drawShield, drawSlamZone, drawSpeech, makeAntSprites,
+  drawFan, drawFootShadow, drawGate, drawPuddle, drawWind, drawGround, drawHazardGlow, drawJar, drawLadybug, drawObstacle, drawPowerUp, drawShield, drawSlamZone, drawSpeech, makeAntSprites,
   paint, rrect, setBoil, text,
   type AntSprites, type BossVisual,
 } from './art';
@@ -151,6 +151,10 @@ export class Run {
   revives = 0;
   /** first-time player: show guided tips with a little slow-mo */
   coach = false;
+  /** Things the player has already been shown a first-look tip for (null: no first-look tips). */
+  introSeen: Set<string> | null = null;
+  /** Called when a first-look tip is shown, so the caller can remember it across runs. */
+  onIntro: (id: string) => void = () => {};
   private tip: { s: string; x: number; d: number; age: number; done: () => boolean } | null = null;
   private tipsSeen = new Set<string>();
   /** sideways drift from fan wind */
@@ -323,6 +327,15 @@ export class Run {
     this.sound.tick();
   }
 
+  /** A tip shown the first time the player ever meets something, at any level. */
+  private introTip(id: string, s: string, x: number, d: number, done: () => boolean) {
+    if (!this.introSeen || this.introSeen.has(id) || this.tip) return;
+    this.introSeen.add(id);
+    this.onIntro(id);
+    this.tip = { s, x, d, age: 0, done };
+    this.sound.tick();
+  }
+
   private updateCoach(dt: number) {
     if (this.tip) {
       this.tip.age += dt;
@@ -330,6 +343,8 @@ export class Run {
       return;
     }
     const lv = this.lv;
+    if (this.phase === 'run') this.updateIntros();
+    if (!this.coach) return;
     if (this.phase === 'run') {
       const c = lv.crumbs.find((c) => !c.taken && c.d - this.d > 60 && c.d - this.d < 200);
       if (c) {
@@ -343,7 +358,13 @@ export class Run {
         this.showTip('gate', t('tipGate'), (side * TRACK_HALF) / 2, g.d, () => Math.sign(this.x) === side && Math.abs(this.x) > 30);
       }
       const o = lv.obstacles.find((o) => !o.smashed && o.d - this.d > 0 && o.d - this.d < 230);
-      if (o) this.showTip('hazard', t('tipHazard'), o.x, o.d, () => this.d > o.d - 40);
+      if (o) {
+        // the hand has meant "go here" so far: point at the clear lane, not at the junk
+        const reach = Math.max(...o.colliders.map((c) => Math.abs(c.dx) + c.r));
+        const dir = o.x > 0 ? -1 : 1;
+        const safe = Math.max(-TRACK_HALF + 30, Math.min(TRACK_HALF - 30, o.x + dir * (reach + 55)));
+        this.showTip('hazard', t('tipHazard'), safe, o.d, () => this.d > o.d - 40);
+      }
       const j = lv.jars.find((j) => !j.open && j.d - this.d > 0 && j.d - this.d < 260);
       if (j) this.showTip('jar', t('tipJar'), j.x, j.d, () => j.open);
     } else if (this.phase === 'boss' && this.slam && this.slam.hit <= 0 && !this.slam.icon) {
@@ -351,6 +372,37 @@ export class Run {
       const safe = x0 < 0 ? TRACK_HALF * 0.6 : -TRACK_HALF * 0.6;
       this.showTip('slam', t('tipSlam'), x1 - x0 > 150 ? safe : this.x > 0 ? -TRACK_HALF * 0.75 : TRACK_HALF * 0.75, this.bossCy, () => !this.slam || this.slam.hit > 0);
     }
+  }
+
+  private updateIntros() {
+    const lv = this.lv;
+    const ahead = (d: number, far = 260) => d - this.d > 0 && d - this.d < far;
+    const passed = (d: number) => () => this.d > d;
+    const s = lv.squads.find((s) => !s.dead && ahead(s.d, 300));
+    if (s) {
+      // point at a fight the swarm wins, or else at the gap furthest from every squad in the row
+      const row = lv.squads.filter((q) => !q.dead && Math.abs(q.d - s.d) < 5);
+      const win = row.filter((q) => q.hp < this.count * this.power).sort((a, b) => a.hp - b.hp)[0];
+      const gap = (x: number) => Math.min(...row.map((q) => Math.abs(q.x - x)));
+      const x = win ? win.x : [-0.7, 0, 0.7].map((k) => k * TRACK_HALF).reduce((a, b) => (gap(b) > gap(a) ? b : a));
+      this.introTip('squad', t('tipSquad'), x, s.d, () => this.d > s.d - 20 || this.phase === 'battle');
+    }
+    for (const g of lv.gates) {
+      if (g.chosen || !ahead(g.d, 280)) continue;
+      if (g.slot) this.introTip('slot', t('tipSlot'), (g.slot.side * TRACK_HALF) / 2, g.d, passed(g.d));
+      else if (g.left.op === '?' || g.right.op === '?') this.introTip('mystery', t('tipMystery'), ((g.left.op === '?' ? -1 : 1) * TRACK_HALF) / 2, g.d, passed(g.d));
+    }
+    const f = lv.foods.find((f) => f.state === 'idle' && ahead(f.d));
+    if (f) this.introTip('food', t('tipFood'), f.x, f.d, passed(f.d));
+    const p = lv.powerups.find((p) => !p.taken && ahead(p.d));
+    if (p) {
+      if (p.kind === 'giant') this.introTip('giant', t('tipGiant'), p.x, p.d, () => p.taken || this.d > p.d);
+      else this.introTip('power', t('tipPower'), p.x, p.d, () => p.taken || this.d > p.d);
+    }
+    const b = lv.boosts.find((b) => !b.used && ahead(b.d));
+    if (b) this.introTip('boost', t('tipBoost'), b.x, b.d, () => b.used || this.d > b.d);
+    const pea = lv.obstacles.find((o) => o.kind === 'pea' && !o.smashed && ahead(o.d));
+    if (pea) this.introTip('pea', t('tipPea'), 0, pea.d, passed(pea.d));
   }
 
   // ------------------------------------------------------------ fx
@@ -379,6 +431,8 @@ export class Run {
   private float(x: number, y: number, s: string, color = '#fff', size = 22) {
     // keep wide labels on screen when the swarm hugs a wall
     const lim = Math.max(0, TRACK_HALF + 10 - [...s].length * size * 0.27);
+    // one headline at a time: a new big label hurries the previous one off screen
+    if (size >= 24) for (const f of this.texts) if (f.size >= 24) f.life = Math.max(f.life, 0.85);
     this.texts.push({ x: Math.max(-lim, Math.min(lim, x)), y, s, color, life: 0, size });
   }
 
@@ -386,7 +440,7 @@ export class Run {
   update(dt: number) {
     if (this.paused) return;
     dt = Math.min(dt, 1 / 30);
-    if (this.coach) {
+    if (this.coach || this.introSeen) {
       this.updateCoach(dt);
       if (this.tip) dt *= 0.35; // slow-mo while a tip is up
     }
@@ -591,7 +645,7 @@ export class Run {
         this.crumbHoney += gain * this.stats.crumbHoneyMult;
         this.sound.pick(this.combo);
         this.sparkle(c.x, c.d, c.kind === 'candy' ? '#ff7eb6' : '#ffd166', c.kind === 'bread' ? 3 : 7);
-        if (gain > 1) this.float(c.x, c.d + 10, `+${gain}`, '#ffd166', 18);
+        if (c.value > 1) this.float(c.x, c.d + 10, `+${gain}`, '#ffd166', 18);
         if (this.combo % FEVER_COMBO === 0) {
           // Fever: double ants per crumb, longer combo window, bigger pickup reach.
           this.feverT = 5;
@@ -1331,6 +1385,7 @@ export class Run {
     for (const o of lv.obstacles) {
       if (o.smashed || !vis(o.d, 120)) continue;
       const ox = o.x + (o.move ? Math.sin(tm * o.move.speed + o.move.phase) * o.move.amp : 0);
+      if (this.giantT <= 0) drawHazardGlow(ctx, ox, Y(o.d), o.colliders, tm);
       drawObstacle(ctx, o.kind, ox, Y(o.d), o.seed, tm, o.flip);
     }
 
@@ -1585,8 +1640,8 @@ export class Run {
       const k = (this.combo % FEVER_COMBO) / FEVER_COMBO;
       text(ctx, `${t('combo', this.combo)}`, W / 2, H * 0.17, (16 + k * 10) * u, k > 0.66 ? '#ffd166' : '#fff', INK);
     }
-    // fever frame
-    if (this.feverT > 0) {
+    // fever frame (only while running: the boss fight has enough going on)
+    if (this.feverT > 0 && (this.phase === 'run' || this.phase === 'battle')) {
       ctx.save();
       ctx.globalAlpha = 0.5 + Math.sin(this.time * 12) * 0.2;
       ctx.lineWidth = 14 * u;
@@ -1616,10 +1671,14 @@ export class Run {
       ctx.translate(W / 2, H * 0.24);
       ctx.scale(k, k);
       ctx.globalAlpha = 0.9;
-      rrect(ctx, -Math.min(W - 24, 380) / 2, -34 * u, Math.min(W - 24, 380), 68 * u, 18 * u, 5, 0.6);
+      const bw = Math.min(W - 24, 380);
+      const size = 19 * u;
+      const lines = splitLines(ctx, this.tip.s, bw - 28 * u, size);
+      const bh = Math.max(68 * u, lines.length * size * 1.25 + 30 * u);
+      rrect(ctx, -bw / 2, -bh / 2, bw, bh, 18 * u, 5, 0.6);
       paint(ctx, '#fffaf0', 3);
       ctx.globalAlpha = 1;
-      text(ctx, this.tip.s, 0, 0, 19 * u, '#ff7eb6', INK);
+      lines.forEach((l, i) => text(ctx, l, 0, (i - (lines.length - 1) / 2) * size * 1.25, size, '#ff7eb6', INK));
       ctx.restore();
     }
     if (this.phase === 'bossIntro') {
@@ -1658,6 +1717,11 @@ export class Run {
 }
 
 function wrapText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, maxW: number, size: number) {
+  splitLines(ctx, s, maxW, size).forEach((l, i) => text(ctx, l, x, y + i * size * 1.25, size, '#fff', INK));
+}
+
+/** Breaks `s` into lines no wider than `maxW` at the bold UI font. */
+function splitLines(ctx: CanvasRenderingContext2D, s: string, maxW: number, size: number) {
   ctx.font = `800 ${size}px "Baloo 2", sans-serif`;
   const lines: string[] = [];
   let cur = '';
@@ -1669,5 +1733,5 @@ function wrapText(ctx: CanvasRenderingContext2D, s: string, x: number, y: number
     } else cur = next;
   }
   if (cur) lines.push(cur);
-  lines.forEach((l, i) => text(ctx, l, x, y + i * size * 1.25, size, '#fff', INK));
+  return lines;
 }

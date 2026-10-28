@@ -811,6 +811,23 @@ export function drawSlamZone(ctx: C, x0: number, x1: number, y0: number, y1: num
 }
 
 // ---------------------------------------------------------------- obstacles
+/** Pulsing red patch under a hazard, covering exactly where it hurts, so junk never reads as food. */
+export function drawHazardGlow(ctx: C, x: number, y: number, colliders: { dx: number; dy: number; r: number }[], t: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  const pulse = Math.sin(t * 6);
+  for (const [grow, alpha] of [[14, 0.14], [7, 0.22]]) {
+    ctx.beginPath();
+    for (const c of colliders) {
+      ctx.moveTo(c.dx + c.r + grow, c.dy);
+      ctx.arc(c.dx, c.dy, c.r + grow + pulse * 2, 0, TAU);
+    }
+    ctx.fillStyle = `rgba(226, 40, 60, ${alpha + pulse * 0.05})`;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 export type ObstacleKind = 'spoon' | 'eraser' | 'peel' | 'tack' | 'pea' | 'button';
 
 export function drawObstacle(ctx: C, kind: ObstacleKind, x: number, y: number, seed: number, t: number, flip: number) {
@@ -901,20 +918,30 @@ export function drawObstacle(ctx: C, kind: ObstacleKind, x: number, y: number, s
       break;
     }
     case 'button': {
+      // a slate-blue sewing button with crossed thread: nothing like a biscuit
       ctx.beginPath();
       ctx.arc(3, 4, 24, 0, TAU);
       ctx.fill();
       blob(ctx, 0, 0, 24, 24, seed, 0.02);
-      paint(ctx, '#ffc35c', 2.6);
+      paint(ctx, '#7f9cc4', 2.6);
       ctx.beginPath();
       ctx.arc(0, 0, 17, 0, TAU);
-      paint(ctx, null, 1.4, '#c98a1f');
-      ctx.fillStyle = '#c98a1f';
+      paint(ctx, null, 1.4, '#4d6890');
+      ctx.fillStyle = '#34496b';
       for (const [hx, hy] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) {
         ctx.beginPath();
         ctx.arc(hx, hy, 2.8, 0, TAU);
         ctx.fill();
       }
+      ctx.strokeStyle = '#fffaf0';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-5, -5);
+      ctx.lineTo(5, 5);
+      ctx.moveTo(5, -5);
+      ctx.lineTo(-5, 5);
+      ctx.stroke();
       break;
     }
   }

@@ -29,6 +29,7 @@ export interface SaveData {
   ach: string[]; // achievements claimed
   skin: SkinId;
   skins: SkinId[];
+  tips: string[]; // first-look tips already shown (squads, slot gates…)
 }
 
 const KEY = 'ant-rumble-save-v1';
@@ -58,6 +59,7 @@ const fresh = (): SaveData => ({
   ach: [],
   skin: 'classic',
   skins: ['classic'],
+  tips: [],
 });
 
 export function loadSave(): SaveData {
@@ -75,6 +77,8 @@ export function loadSave(): SaveData {
       // anyone past level 2 already knows how to play
       ver: data.ver ?? 1,
       tutorial: data.tutorial ?? (data.level ?? 1) > 2,
+      // saves from before first-look tips: past level 5 everything has been met already
+      tips: data.tips ?? ((data.level ?? 1) > 5 ? ['squad', 'slot', 'mystery', 'food', 'power', 'giant', 'boost', 'pea'] : []),
     };
   } catch {
     return base;

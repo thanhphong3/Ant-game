@@ -329,7 +329,8 @@ function makeGate(r: Rng, num: number, est: number, safe: boolean, wantMystery: 
   const bad = (): GateOp => (r() < 0.3 ? { op: '/', v: 2 } : minus());
   const k = r();
   let pair: [GateOp, GateOp];
-  if (safe) pair = [good(), good()];
+  // Level 1 has a single gate: make it a real choice so the "green gate" lesson means something.
+  if (safe) pair = num === 1 ? [plus(), { op: '-', v: irange(r, 2, 4) }] : [good(), good()];
   else if (num >= 2 && !noMystery && (wantMystery || k < 0.25)) pair = [{ op: '?', v: 0 }, r() < 0.5 ? good() : bad()];
   else if (k < 0.55) pair = [good(), bad()];
   else if (k < 0.9) pair = [good(), good()];
